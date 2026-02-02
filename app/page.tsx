@@ -6,11 +6,8 @@ export default function PokerApp() {
   const [activeTab, setActiveTab] = useState<'input' | 'ranking' | 'master'>('input');
   const [filterUnpaid, setFilterUnpaid] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
-  
-  // 日付フィルターの状態
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-
   const [members, setMembers] = useState<string[]>([]);
   const [newMemberName, setNewMemberName] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -26,13 +23,7 @@ export default function PokerApp() {
     if (sData) {
       const grouped = sData.reduce((acc: any, curr) => {
         if (!acc[curr.event_id]) {
-          acc[curr.event_id] = { 
-            id: curr.event_id, 
-            rawDate: curr.created_at, // 比較用に生の日付を持つ
-            date: new Date(curr.created_at).toLocaleString('ja-JP'), 
-            status: curr.status, 
-            data: [] 
-          };
+          acc[curr.event_id] = { id: curr.event_id, rawDate: curr.created_at, date: new Date(curr.created_at).toLocaleString('ja-JP'), status: curr.status, data: [] };
         }
         acc[curr.event_id].data.push({ name: curr.player_name, amount: curr.amount });
         return acc;
@@ -43,6 +34,11 @@ export default function PokerApp() {
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  // 現在の入力合計額を計算
+  const currentTotal = useMemo(() => {
+    return selectedIds.reduce((sum, name) => sum + (amounts[name] || 0), 0);
+  }, [selectedIds, amounts]);
 
   const toggleEditMode = () => {
     if (!isEditMode) {
@@ -56,23 +52,12 @@ export default function PokerApp() {
 
   const filteredEvents = useMemo(() => filterUnpaid ? events.filter(ev => ev.status === "未清算") : events, [events, filterUnpaid]);
 
-  // 日付フィルターを適用したランキング計算
   const ranking = useMemo(() => {
     const stats: Record<string, { total: number; games: number }> = {};
-    
     events.forEach(ev => {
-      // 日付チェック
       const evTime = new Date(ev.rawDate).getTime();
-      if (startDate) {
-        const startThreshold = new Date(startDate).getTime();
-        if (evTime < startThreshold) return;
-      }
-      if (endDate) {
-        // 終了日の23:59:59まで含めるように設定
-        const endThreshold = new Date(endDate).setHours(23, 59, 59, 999);
-        if (evTime > endThreshold) return;
-      }
-
+      if (startDate && evTime < new Date(startDate).getTime()) return;
+      if (endDate && evTime > new Date(endDate).setHours(23, 59, 59, 999)) return;
       ev.data.forEach((d: any) => {
         if (!stats[d.name]) stats[d.name] = { total: 0, games: 0 };
         stats[d.name].total += d.amount;
@@ -83,30 +68,17 @@ export default function PokerApp() {
   }, [events, startDate, endDate]);
 
   const saveEvent = async () => {
-    const total = selectedIds.reduce((sum, name) => sum + (amounts[name] || 0), 0);
-    if (total !== 0) return alert("合計を0円にしてください。現在は " + total.toLocaleString() + "円 です。");
-    
+    if (currentTotal !== 0) return alert("合計を0円にしてください。現在は " + currentTotal.toLocaleString() + "円 です。");
     const eventId = crypto.randomUUID();
-    const insertData = selectedIds.map(name => ({ 
-      event_id: eventId, 
-      player_name: name, 
-      amount: amounts[name] || 0, 
-      status: "清算済み" // ここを「未清算」から変更
-    }));
-
+    const insertData = selectedIds.map(name => ({ event_id: eventId, player_name: name, amount: amounts[name] || 0, status: "清算済み" }));
     const { error } = await supabase.from('sessions').insert(insertData);
     if (error) alert("保存に失敗しました");
-    else { 
-      alert("清算済みとして保存しました！"); 
-      fetchData(); 
-      setSelectedIds([]); 
-      setAmounts({}); 
-    }
+    else { alert("清算済みとして保存しました！"); fetchData(); setSelectedIds([]); setAmounts({}); }
   };
-  
+
   const deleteMember = async (name: string) => {
     if (!isEditMode) return;
-    if (!confirm(`${name} さんをリストから削除しますか？`)) return;
+    if (!confirm(`${name} さんを削除しますか？`)) return;
     await supabase.from('players').delete().eq('name', name);
     fetchData();
   };
@@ -166,6 +138,17 @@ export default function PokerApp() {
                 <input type="number" placeholder="0" value={amounts[name] || ""} onChange={(e) => setAmounts({ ...amounts, [name]: parseInt(e.target.value) || 0 })} className="w-28 p-2 border-2 border-slate-100 rounded-lg text-right focus:border-indigo-400 outline-none font-mono text-slate-900 font-bold" />
               </div>
             ))}
+            
+            {/* 合計額表示エリア */}
+            {selectedIds.length > 0 && (
+              <div className={`mt-4 p-3 rounded-xl border-2 text-center transition-all ${currentTotal === 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
+                <div className="text-[10px] font-black uppercase text-slate-400">現在の合計</div>
+                <div className={`text-xl font-mono font-black ${currentTotal === 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {currentTotal > 0 ? `+${currentTotal.toLocaleString()}` : currentTotal.toLocaleString()}
+                </div>
+              </div>
+            )}
+
             <button onClick={saveEvent} disabled={selectedIds.length === 0} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black mt-4 disabled:bg-slate-200 active:scale-95">記録を保存する</button>
           </div>
 
@@ -201,7 +184,6 @@ export default function PokerApp() {
 
       {activeTab === 'ranking' && (
         <div className="space-y-4">
-          {/* 日付フィルター入力欄 */}
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-3">
             <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">期間指定フィルター</h2>
             <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
@@ -209,11 +191,8 @@ export default function PokerApp() {
               <span>〜</span>
               <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="flex-1 p-2 bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-indigo-400" />
             </div>
-            {(startDate || endDate) && (
-              <button onClick={() => { setStartDate(''); setEndDate(''); }} className="text-[10px] text-indigo-600 font-bold underline">フィルターを解除</button>
-            )}
+            {(startDate || endDate) && <button onClick={() => { setStartDate(''); setEndDate(''); }} className="text-[10px] text-indigo-600 font-bold underline">フィルターを解除</button>}
           </div>
-
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
