@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useMemo } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/app/lib/supabase';
 
 export default function PokerApp() {
   const [activeTab, setActiveTab] = useState<'input' | 'ranking' | 'master'>('input');
