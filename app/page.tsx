@@ -79,7 +79,7 @@ export default function PokerApp() {
 
   const deleteEvent = async (eventId: string) => {
     if (!isEditMode) return;
-    if (!confirm("この記録を完全に削除しますか？"));
+    if (!confirm("この記録を完全に削除しますか？")) return;
     await supabase.from('sessions').delete().eq('event_id', eventId);
     fetchData();
   };
