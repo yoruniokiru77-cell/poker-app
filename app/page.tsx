@@ -85,13 +85,25 @@ export default function PokerApp() {
   const saveEvent = async () => {
     const total = selectedIds.reduce((sum, name) => sum + (amounts[name] || 0), 0);
     if (total !== 0) return alert("合計を0円にしてください。現在は " + total.toLocaleString() + "円 です。");
+    
     const eventId = crypto.randomUUID();
-    const insertData = selectedIds.map(name => ({ event_id: eventId, player_name: name, amount: amounts[name] || 0, status: "未清算" }));
+    const insertData = selectedIds.map(name => ({ 
+      event_id: eventId, 
+      player_name: name, 
+      amount: amounts[name] || 0, 
+      status: "清算済み" // ここを「未清算」から変更
+    }));
+
     const { error } = await supabase.from('sessions').insert(insertData);
     if (error) alert("保存に失敗しました");
-    else { alert("保存しました！"); fetchData(); setSelectedIds([]); setAmounts({}); }
+    else { 
+      alert("清算済みとして保存しました！"); 
+      fetchData(); 
+      setSelectedIds([]); 
+      setAmounts({}); 
+    }
   };
-
+  
   const deleteMember = async (name: string) => {
     if (!isEditMode) return;
     if (!confirm(`${name} さんをリストから削除しますか？`)) return;
