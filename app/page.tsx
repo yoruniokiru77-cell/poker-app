@@ -4,7 +4,8 @@ import { supabase } from '../app/lib/supabase';
 
 export default function PokerApp() {
   const [activeTab, setActiveTab] = useState<'input' | 'ranking' | 'master'>('input');
-  const [filterUnpaid, setFilterUnpaid] = useState(false); // 未精算フィルターの状態
+  const [filterUnpaid, setFilterUnpaid] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false); // 編集モードの状態
   const [members, setMembers] = useState<string[]>([]);
   const [newMemberName, setNewMemberName] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -16,17 +17,11 @@ export default function PokerApp() {
     setLoading(true);
     const { data: pData } = await supabase.from('players').select('name');
     if (pData) setMembers(pData.map(p => p.name));
-
     const { data: sData } = await supabase.from('sessions').select('*').order('created_at', { ascending: false });
     if (sData) {
       const grouped = sData.reduce((acc: any, curr) => {
         if (!acc[curr.event_id]) {
-          acc[curr.event_id] = { 
-            id: curr.event_id, 
-            date: new Date(curr.created_at).toLocaleString(), 
-            status: curr.status, 
-            data: [] 
-          };
+          acc[curr.event_id] = { id: curr.event_id, date: new Date(curr.created_at).toLocaleString(), status: curr.status, data: [] };
         }
         acc[curr.event_id].data.push({ name: curr.player_name, amount: curr.amount });
         return acc;
@@ -38,13 +33,21 @@ export default function PokerApp() {
 
   useEffect(() => { fetchData(); }, []);
 
-  // フィルターされたイベント一覧
-  const filteredEvents = useMemo(() => {
-    if (filterUnpaid) {
-      return events.filter(ev => ev.status === "未清算");
+  // 編集モードの切り替え
+  const toggleEditMode = () => {
+    if (!isEditMode) {
+      const pw = prompt("パスワードを入力してください");
+      if (pw === "poker999") {
+        setIsEditMode(true);
+      } else {
+        alert("パスワードが違います");
+      }
+    } else {
+      setIsEditMode(false);
     }
-    return events;
-  }, [events, filterUnpaid]);
+  };
+
+  const filteredEvents = useMemo(() => filterUnpaid ? events.filter(ev => ev.status === "未精算") : events, [events, filterUnpaid]);
 
   const ranking = useMemo(() => {
     const stats: Record<string, { total: number; games: number }> = {};
@@ -69,18 +72,24 @@ export default function PokerApp() {
   };
 
   const deleteMember = async (name: string) => {
+    if (!isEditMode) return;
     if (!confirm(`${name}さんを削除しますか？`)) return;
     await supabase.from('players').delete().eq('name', name);
     fetchData();
   };
 
   const deleteEvent = async (eventId: string) => {
+    if (!isEditMode) return;
     if (!confirm("このゲーム記録を完全に削除しますか？")) return;
     await supabase.from('sessions').delete().eq('event_id', eventId);
     fetchData();
   };
 
   const toggleStatus = async (eventId: string, currentStatus: string) => {
+    if (!isEditMode) {
+      alert("編集モードをONにしてください");
+      return;
+    }
     const newStatus = currentStatus === "未清算" ? "清算済み" : "未清算";
     await supabase.from('sessions').update({ status: newStatus }).eq('event_id', eventId);
     fetchData();
@@ -97,7 +106,16 @@ export default function PokerApp() {
 
   return (
     <div className="max-w-md mx-auto p-4 bg-slate-50 min-h-screen font-sans text-slate-900">
-      <div className="text-center text-[10px] text-emerald-500 mb-4 font-black uppercase tracking-widest">● Online Database Connected</div>
+      <div className="flex justify-between items-center mb-4">
+        <div className="text-[10px] text-emerald-500 font-black uppercase tracking-widest">● Online Database</div>
+        {/* 編集モード切り替えボタン */}
+        <button 
+          onClick={toggleEditMode}
+          className={`text-[10px] font-black px-3 py-1 rounded-full border transition-all flex items-center gap-1 ${isEditMode ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-slate-400 border-slate-200'}`}
+        >
+          {isEditMode ? '🔓 EDIT MODE ON' : '🔒 EDIT MODE OFF'}
+        </button>
+      </div>
 
       <div className="flex bg-white p-1 rounded-xl shadow-sm mb-6 border border-slate-100">
         {(['input', 'ranking', 'master'] as const).map((tab) => (
@@ -131,28 +149,23 @@ export default function PokerApp() {
           <div className="space-y-4">
             <div className="flex justify-between items-center px-1">
               <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">Recent Events</h2>
-              {/* フィルターボタン */}
-              <button 
-                onClick={() => setFilterUnpaid(!filterUnpaid)}
-                className={`text-[10px] font-black px-3 py-1 rounded-full border transition-all ${filterUnpaid ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-400 border-slate-200'}`}
-              >
+              <button onClick={() => setFilterUnpaid(!filterUnpaid)}
+                className={`text-[10px] font-black px-3 py-1 rounded-full border transition-all ${filterUnpaid ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-400 border-slate-200'}`}>
                 {filterUnpaid ? 'SHOWING UNPAID' : 'SHOW ALL'}
               </button>
             </div>
             
-            {filteredEvents.length === 0 && (
-              <div className="text-center py-10 text-slate-300 text-xs font-bold">No events found.</div>
-            )}
-
             {filteredEvents.map(ev => (
               <div key={ev.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative">
-                <button onClick={() => deleteEvent(ev.id)} className="absolute top-4 right-4 text-slate-300 hover:text-rose-500 p-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5 v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg>
-                </button>
+                {isEditMode && (
+                  <button onClick={() => deleteEvent(ev.id)} className="absolute top-4 right-4 text-slate-300 hover:text-rose-500 p-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5 v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg>
+                  </button>
+                )}
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-[10px] text-slate-400 font-bold">{ev.date}</span>
                   <button onClick={() => toggleStatus(ev.id, ev.status)}
-                    className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${ev.status === "未清算" ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>{ev.status}</button>
+                    className={`px-3 py-1 rounded-full text-[10px] font-black uppercase transition-all ${ev.status === "未清算" ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'} ${!isEditMode && 'opacity-70'}`}>{ev.status}</button>
                 </div>
                 {ev.data.map((d: any) => (
                   <div key={d.name} className="flex justify-between text-sm py-1 border-b border-slate-50 last:border-0">
@@ -197,9 +210,11 @@ export default function PokerApp() {
             {members.map(m => (
               <div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100">
                 <span className="font-bold text-slate-800">{m}</span>
-                <button onClick={() => deleteMember(m)} className="text-slate-300 hover:text-rose-500 p-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
-                </button>
+                {isEditMode && (
+                  <button onClick={() => deleteMember(m)} className="text-slate-300 hover:text-rose-500 p-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+                  </button>
+                )}
               </div>
             ))}
           </div>
