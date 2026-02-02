@@ -11,7 +11,7 @@ export default function PokerApp() {
   const [members, setMembers] = useState<string[]>([]);
   const [newMemberName, setNewMemberName] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [amounts, setAmounts] = useState<Record<string, number>>({});
+  const [points, setPoints] = useState<Record<string, number>>({});
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -35,10 +35,11 @@ export default function PokerApp() {
 
   useEffect(() => { fetchData(); }, []);
 
-  // 現在の入力合計額を計算
-  const currentTotal = useMemo(() => {
-    return selectedIds.reduce((sum, name) => sum + (amounts[name] || 0), 0);
-  }, [selectedIds, amounts]);
+  const currentTotalPoints = useMemo(() => {
+    return selectedIds.reduce((sum, name) => sum + (points[name] || 0), 0);
+  }, [selectedIds, points]);
+
+  const finalTotalAmount = useMemo(() => currentTotalPoints / 2, [currentTotalPoints]);
 
   const toggleEditMode = () => {
     if (!isEditMode) {
@@ -68,12 +69,17 @@ export default function PokerApp() {
   }, [events, startDate, endDate]);
 
   const saveEvent = async () => {
-    if (currentTotal !== 0) return alert("合計を0円にしてください。現在は " + currentTotal.toLocaleString() + "円 です。");
+    if (currentTotalPoints !== 0) return alert("合計を0にしてください（現在は " + currentTotalPoints + "pt）");
     const eventId = crypto.randomUUID();
-    const insertData = selectedIds.map(name => ({ event_id: eventId, player_name: name, amount: amounts[name] || 0, status: "清算済み" }));
+    const insertData = selectedIds.map(name => ({ 
+      event_id: eventId, 
+      player_name: name, 
+      amount: (points[name] || 0) / 2, 
+      status: "清算済み" 
+    }));
     const { error } = await supabase.from('sessions').insert(insertData);
     if (error) alert("保存に失敗しました");
-    else { alert("清算済みとして保存しました！"); fetchData(); setSelectedIds([]); setAmounts({}); }
+    else { alert("清算済みとして保存しました！"); fetchData(); setSelectedIds([]); setPoints({}); }
   };
 
   const deleteMember = async (name: string) => {
@@ -126,7 +132,7 @@ export default function PokerApp() {
       {activeTab === 'input' && (
         <>
           <div className="bg-white p-5 rounded-2xl shadow-sm mb-6 border border-slate-100">
-            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">新規セッション記録</h2>
+            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">新規セッション記録 (pt入力)</h2>
             <div className="flex flex-wrap gap-2 mb-6">
               {members.map(m => (
                 <button key={m} onClick={() => setSelectedIds(prev => prev.includes(m) ? prev.filter(n => n !== m) : [...prev, m])} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedIds.includes(m) ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>{m}</button>
@@ -134,18 +140,20 @@ export default function PokerApp() {
             </div>
             {selectedIds.map(name => (
               <div key={name} className="flex items-center justify-between mb-3">
-                <span className="font-bold text-slate-700">{name}</span>
-                <input type="number" placeholder="0" value={amounts[name] || ""} onChange={(e) => setAmounts({ ...amounts, [name]: parseInt(e.target.value) || 0 })} className="w-28 p-2 border-2 border-slate-100 rounded-lg text-right focus:border-indigo-400 outline-none font-mono text-slate-900 font-bold" />
+                <div className="flex flex-col">
+                  <span className="font-bold text-slate-700">{name}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="number" placeholder="0" value={points[name] || ""} onChange={(e) => setPoints({ ...points, [name]: parseInt(e.target.value) || 0 })} className="w-24 p-2 border-2 border-slate-100 rounded-lg text-right focus:border-indigo-400 outline-none font-mono text-slate-900 font-bold" />
+                  <span className="text-xs font-bold text-slate-400">pt</span>
+                </div>
               </div>
             ))}
             
-            {/* 合計額表示エリア */}
+            {/* 合計ポイント表示を削除し、金額チェックのみ表示 */}
             {selectedIds.length > 0 && (
-              <div className={`mt-4 p-3 rounded-xl border-2 text-center transition-all ${currentTotal === 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
-                <div className="text-[10px] font-black uppercase text-slate-400">現在の合計</div>
-                <div className={`text-xl font-mono font-black ${currentTotal === 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                  {currentTotal > 0 ? `+${currentTotal.toLocaleString()}` : currentTotal.toLocaleString()}
-                </div>
+              <div className={`mt-4 p-2 rounded-lg text-center font-bold text-xs ${currentTotalPoints === 0 ? 'text-emerald-600 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
+                {currentTotalPoints === 0 ? '✓ 合計が0になりました' : `合計を0にしてください (現在: ${currentTotalPoints}pt)`}
               </div>
             )}
 
@@ -160,7 +168,7 @@ export default function PokerApp() {
               </button>
             </div>
             {filteredEvents.map(ev => (
-              <div key={ev.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative">
+              <div key={ev.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative text-slate-900">
                 {isEditMode && (
                   <button onClick={() => deleteEvent(ev.id)} className="absolute top-4 right-4 text-slate-300 hover:text-rose-500 p-1">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5 v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg>
@@ -173,7 +181,7 @@ export default function PokerApp() {
                 {ev.data.map((d: any) => (
                   <div key={d.name} className="flex justify-between text-sm py-1 border-b border-slate-50 last:border-0">
                     <span className="text-slate-600 font-bold">{d.name}</span>
-                    <span className={`font-mono font-bold ${d.amount >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{d.amount > 0 ? `+${d.amount.toLocaleString()}` : d.amount.toLocaleString()}</span>
+                    <span className={`font-mono font-bold ${d.amount >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{d.amount > 0 ? `+${d.amount.toLocaleString()}` : d.amount.toLocaleString()}円</span>
                   </div>
                 ))}
               </div>
@@ -195,8 +203,8 @@ export default function PokerApp() {
           </div>
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             <table className="w-full text-left">
-              <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
-                <tr><th className="p-4">順位</th><th className="p-4">プレイヤー</th><th className="p-4 text-right">収支</th></tr>
+              <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase text-slate-900">
+                <tr><th className="p-4">順位</th><th className="p-4">プレイヤー</th><th className="p-4 text-right">収支額</th></tr>
               </thead>
               <tbody>
                 {ranking.length === 0 ? (
@@ -206,7 +214,7 @@ export default function PokerApp() {
                     <tr key={row.name} className="border-b border-slate-50 last:border-0">
                       <td className="p-4 font-black text-slate-300">#{index + 1}</td>
                       <td className="p-4"><div className="font-bold text-slate-800">{row.name}</div><div className="text-[10px] text-slate-400">{row.games} ゲーム</div></td>
-                      <td className={`p-4 text-right font-mono font-black ${row.total >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{row.total.toLocaleString()}</td>
+                      <td className={`p-4 text-right font-mono font-black ${row.total >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{row.total.toLocaleString()}円</td>
                     </tr>
                   ))
                 )}
