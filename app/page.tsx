@@ -188,23 +188,28 @@ export default function PokerApp() {
         </div>
       )}
 
-      {activeTab === 'master' && (
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-          <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Player Master</h2>
-          <div className="flex gap-2 mb-6">
-            <input type="text" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)}
-              placeholder="名前を入力" className="flex-1 p-2 border-2 border-slate-100 rounded-lg outline-none focus:border-indigo-400" />
-            <button onClick={addMember} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold">追加</button>
-          </div>
-          <div className="space-y-2">
-            {members.map(m => (
-              <div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
-                <span className="font-bold text-slate-700">{m}</span>
-              </div>
-            ))}
-          </div>
+    {activeTab === 'master' && (
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+        <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Player Master</h2>
+        <div className="flex gap-2 mb-6">
+          <input 
+            type="text" 
+            value={newMemberName} 
+            onChange={(e) => setNewMemberName(e.target.value)}
+            placeholder="名前を入力" 
+            className="flex-1 p-2 border-2 border-slate-100 rounded-lg outline-none focus:border-indigo-400 text-slate-900 font-bold" 
+          />
+          <button onClick={addMember} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold active:scale-95">追加</button>
         </div>
-      )}
+        <div className="space-y-2">
+          {members.map(m => (
+            <div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100">
+              <span className="font-bold text-slate-800">{m}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}    
     </div>
   );
 }
