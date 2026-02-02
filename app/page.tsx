@@ -6,6 +6,11 @@ export default function PokerApp() {
   const [activeTab, setActiveTab] = useState<'input' | 'ranking' | 'master'>('input');
   const [filterUnpaid, setFilterUnpaid] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  
+  // 日付フィルターの状態
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
   const [members, setMembers] = useState<string[]>([]);
   const [newMemberName, setNewMemberName] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -21,7 +26,13 @@ export default function PokerApp() {
     if (sData) {
       const grouped = sData.reduce((acc: any, curr) => {
         if (!acc[curr.event_id]) {
-          acc[curr.event_id] = { id: curr.event_id, date: new Date(curr.created_at).toLocaleString('ja-JP'), status: curr.status, data: [] };
+          acc[curr.event_id] = { 
+            id: curr.event_id, 
+            rawDate: curr.created_at, // 比較用に生の日付を持つ
+            date: new Date(curr.created_at).toLocaleString('ja-JP'), 
+            status: curr.status, 
+            data: [] 
+          };
         }
         acc[curr.event_id].data.push({ name: curr.player_name, amount: curr.amount });
         return acc;
@@ -35,12 +46,9 @@ export default function PokerApp() {
 
   const toggleEditMode = () => {
     if (!isEditMode) {
-      const pw = prompt("パスワードを入力してください");
-      if (pw === "poker999") {
-        setIsEditMode(true);
-      } else if (pw !== null) {
-        alert("パスワードが正しくありません");
-      }
+      const pw = prompt("パスワード（poker999）を入力してください");
+      if (pw === "poker999") setIsEditMode(true);
+      else if (pw !== null) alert("パスワードが正しくありません");
     } else {
       setIsEditMode(false);
     }
@@ -48,9 +56,23 @@ export default function PokerApp() {
 
   const filteredEvents = useMemo(() => filterUnpaid ? events.filter(ev => ev.status === "未清算") : events, [events, filterUnpaid]);
 
+  // 日付フィルターを適用したランキング計算
   const ranking = useMemo(() => {
     const stats: Record<string, { total: number; games: number }> = {};
+    
     events.forEach(ev => {
+      // 日付チェック
+      const evTime = new Date(ev.rawDate).getTime();
+      if (startDate) {
+        const startThreshold = new Date(startDate).getTime();
+        if (evTime < startThreshold) return;
+      }
+      if (endDate) {
+        // 終了日の23:59:59まで含めるように設定
+        const endThreshold = new Date(endDate).setHours(23, 59, 59, 999);
+        if (evTime > endThreshold) return;
+      }
+
       ev.data.forEach((d: any) => {
         if (!stats[d.name]) stats[d.name] = { total: 0, games: 0 };
         stats[d.name].total += d.amount;
@@ -58,7 +80,7 @@ export default function PokerApp() {
       });
     });
     return Object.entries(stats).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.total - a.total);
-  }, [events]);
+  }, [events, startDate, endDate]);
 
   const saveEvent = async () => {
     const total = selectedIds.reduce((sum, name) => sum + (amounts[name] || 0), 0);
@@ -85,10 +107,7 @@ export default function PokerApp() {
   };
 
   const toggleStatus = async (eventId: string, currentStatus: string) => {
-    if (!isEditMode) {
-      alert("編集モードをONにしてください");
-      return;
-    }
+    if (!isEditMode) { alert("編集モードをONにしてください"); return; }
     const newStatus = currentStatus === "未清算" ? "清算済み" : "未清算";
     await supabase.from('sessions').update({ status: newStatus }).eq('event_id', eventId);
     fetchData();
@@ -115,7 +134,7 @@ export default function PokerApp() {
       <div className="flex bg-white p-1 rounded-xl shadow-sm mb-6 border border-slate-100">
         {(['input', 'ranking', 'master'] as const).map((tab) => (
           <button key={tab} onClick={() => setActiveTab(tab)} className={`flex-1 py-2 rounded-lg text-xs font-black transition-all ${activeTab === tab ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>
-            {tab === 'input' ? '記録入力' : tab === 'ranking' ? '通算順位' : '名簿管理'}
+            {tab === 'input' ? '記録入力' : tab === 'ranking' ? '期間別順位' : '名簿管理'}
           </button>
         ))}
       </div>
@@ -145,7 +164,6 @@ export default function PokerApp() {
                 {filterUnpaid ? '未清算のみ表示中' : 'すべて表示'}
               </button>
             </div>
-            
             {filteredEvents.map(ev => (
               <div key={ev.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative">
                 {isEditMode && (
@@ -170,21 +188,40 @@ export default function PokerApp() {
       )}
 
       {activeTab === 'ranking' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
-              <tr><th className="p-4">順位</th><th className="p-4">プレイヤー</th><th className="p-4 text-right">通算収支</th></tr>
-            </thead>
-            <tbody>
-              {ranking.map((row, index) => (
-                <tr key={row.name} className="border-b border-slate-50 last:border-0">
-                  <td className="p-4 font-black text-slate-300">#{index + 1}</td>
-                  <td className="p-4"><div className="font-bold text-slate-800">{row.name}</div><div className="text-[10px] text-slate-400">{row.games} ゲーム</div></td>
-                  <td className={`p-4 text-right font-mono font-black ${row.total >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{row.total.toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-4">
+          {/* 日付フィルター入力欄 */}
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-3">
+            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">期間指定フィルター</h2>
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="flex-1 p-2 bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-indigo-400" />
+              <span>〜</span>
+              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="flex-1 p-2 bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-indigo-400" />
+            </div>
+            {(startDate || endDate) && (
+              <button onClick={() => { setStartDate(''); setEndDate(''); }} className="text-[10px] text-indigo-600 font-bold underline">フィルターを解除</button>
+            )}
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
+                <tr><th className="p-4">順位</th><th className="p-4">プレイヤー</th><th className="p-4 text-right">収支</th></tr>
+              </thead>
+              <tbody>
+                {ranking.length === 0 ? (
+                  <tr><td colSpan={3} className="p-10 text-center text-slate-300 font-bold text-xs">期間内のデータがありません</td></tr>
+                ) : (
+                  ranking.map((row, index) => (
+                    <tr key={row.name} className="border-b border-slate-50 last:border-0">
+                      <td className="p-4 font-black text-slate-300">#{index + 1}</td>
+                      <td className="p-4"><div className="font-bold text-slate-800">{row.name}</div><div className="text-[10px] text-slate-400">{row.games} ゲーム</div></td>
+                      <td className={`p-4 text-right font-mono font-black ${row.total >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{row.total.toLocaleString()}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
