@@ -35,7 +35,7 @@ export default function PokerApp() {
 
   const toggleEditMode = () => {
     if (!isEditMode) {
-      const pw = prompt("パスワード（poker999）を入力してください");
+      const pw = prompt("パスワードを入力してください");
       if (pw === "poker999") {
         setIsEditMode(true);
       } else if (pw !== null) {
