@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-// 環境変数が読み込めない場合でもビルドが止まらないように、空文字をデフォルトにする
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder';
+// Supabaseの「API」設定画面からコピーした値を ' ' の中に直接貼り付けてください
+const supabaseUrl = 'https://tjwgdmhrhmcimfrauows.supabase.co';
+const supabaseAnonKey = 'sb_publishable_1EyOQpJUt_zBMjwnu9R_EQ_9wtwG6Lo';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
