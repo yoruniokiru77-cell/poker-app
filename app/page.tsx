@@ -17,7 +17,6 @@ export default function PokerApp() {
 
   // チップ計算機用の状態
   const [calcTarget, setCalcTarget] = useState<string | null>(null);
-  // 全プレイヤーの入力中チップ枚数を保持する
   const [allChipCounts, setAllChipCounts] = useState<Record<string, Record<string, number>>>({});
   const [initialStack, setInitialStack] = useState(30000);
 
@@ -45,7 +44,6 @@ export default function PokerApp() {
     return selectedIds.reduce((sum, name) => sum + (points[name] || 0), 0);
   }, [selectedIds, points]);
 
-  // 現在選択中のターゲットのチップ枚数を取得
   const currentChipCounts = useMemo(() => {
     return calcTarget ? (allChipCounts[calcTarget] || { "50": 0, "100": 0, "500": 0, "1000": 0, "5000": 0 }) : {};
   }, [calcTarget, allChipCounts]);
@@ -109,7 +107,7 @@ export default function PokerApp() {
       fetchData(); 
       setSelectedIds([]); 
       setPoints({}); 
-      setAllChipCounts({}); // 保存後はリセット
+      setAllChipCounts({});
     }
   };
 
@@ -194,37 +192,30 @@ export default function PokerApp() {
             <button onClick={saveEvent} disabled={selectedIds.length === 0} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black mt-4 disabled:bg-slate-200 active:scale-95 transition-transform">記録を保存する</button>
           </div>
 
-          {/* チップ計算モーダル */}
           {calcTarget && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
               <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-in slide-in-from-bottom duration-300">
                 <div className="flex justify-between items-center mb-6">
                   <div>
                     <h3 className="font-black text-slate-800 text-lg">{calcTarget} さんの計算</h3>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">リロードするまで入力値は保持されます</p>
                   </div>
                   <button onClick={() => setCalcTarget(null)} className="text-slate-400 text-2xl">&times;</button>
                 </div>
 
                 <div className="mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">初期スタック (引く分)</span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">初期スタック</span>
                     <span className="text-xs font-mono font-bold text-slate-600">{initialStack.toLocaleString()} pt</span>
                   </div>
                   <input type="range" min="0" max="100000" step="5000" value={initialStack} onChange={(e) => setInitialStack(parseInt(e.target.value))} className="w-full accent-indigo-600" />
                 </div>
 
-                <div className="space-y-3 mb-6">
-                  {Object.keys(currentChipCounts).length > 0 && Object.keys(currentChipCounts).map(val => (
+                <div className="space-y-3 mb-6 text-slate-900">
+                  {Object.keys(currentChipCounts).map(val => (
                     <div key={val} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full border-4 border-dashed flex items-center justify-center text-[10px] font-black 
-                          ${val === '50' ? 'border-orange-200 text-orange-500' : 
-                            val === '100' ? 'border-blue-200 text-blue-500' : 
-                            val === '500' ? 'border-emerald-200 text-emerald-500' : 
-                            val === '1000' ? 'border-rose-200 text-rose-500' : 'border-indigo-200 text-indigo-500'}`}>
-                          {val}
-                        </div>
+                      <div className={`w-8 h-8 rounded-full border-4 border-dashed flex items-center justify-center text-[10px] font-black 
+                          ${val === '50' ? 'border-orange-200 text-orange-500' : val === '100' ? 'border-blue-200 text-blue-500' : val === '500' ? 'border-emerald-200 text-emerald-500' : val === '1000' ? 'border-rose-200 text-rose-500' : 'border-indigo-200 text-indigo-500'}`}>
+                        {val}
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-bold text-slate-300">枚</span>
@@ -236,22 +227,7 @@ export default function PokerApp() {
                   ))}
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 mb-6 text-center">
-                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                    <div className="text-[8px] font-black text-slate-400 uppercase">数えた合計</div>
-                    <div className="text-sm font-mono font-bold text-slate-600">
-                      {Object.entries(currentChipCounts).reduce((sum, [val, count]) => sum + (Number(val) * count), 0).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="bg-indigo-50 p-3 rounded-2xl border border-indigo-100">
-                    <div className="text-[8px] font-black text-indigo-400 uppercase">反映される収支</div>
-                    <div className={`text-sm font-mono font-black ${Object.entries(currentChipCounts).reduce((sum, [val, count]) => sum + (Number(val) * count), 0) - initialStack >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
-                      {(Object.entries(currentChipCounts).reduce((sum, [val, count]) => sum + (Number(val) * count), 0) - initialStack).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-
-                <button onClick={applyChipCalc} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-indigo-100 active:scale-95 transition-all">
+                <button onClick={applyChipCalc} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 transition-all">
                   収支を反映する
                 </button>
               </div>
@@ -259,8 +235,7 @@ export default function PokerApp() {
           )}
 
           <div className="space-y-4">
-            {/* ...Recent Events 部分（変更なし）... */}
-            <div className="flex justify-between items-center px-1">
+            <div className="flex justify-between items-center px-1 text-slate-900">
               <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">最近の記録</h2>
               <button onClick={() => setFilterUnpaid(!filterUnpaid)} className={`text-[10px] font-black px-3 py-1 rounded-full border transition-all ${filterUnpaid ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-400 border-slate-200'}`}>
                 {filterUnpaid ? '未清算のみ表示中' : 'すべて表示'}
@@ -278,7 +253,7 @@ export default function PokerApp() {
                   <button onClick={() => toggleStatus(ev.id, ev.status)} className={`px-3 py-1 rounded-full text-[10px] font-black uppercase transition-all ${ev.status === "未清算" ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'} ${!isEditMode && 'opacity-70'}`}>{ev.status}</button>
                 </div>
                 {ev.data.map((d: any) => (
-                  <div key={d.name} className="flex justify-between text-sm py-1 border-b border-slate-50 last:border-0">
+                  <div key={d.name} className="flex justify-between text-sm py-1 border-b border-slate-50 last:border-0 text-slate-900">
                     <span className="text-slate-600 font-bold">{d.name}</span>
                     <span className={`font-mono font-bold ${d.amount >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{d.amount > 0 ? `+${d.amount.toLocaleString()}` : d.amount.toLocaleString()}円</span>
                   </div>
@@ -288,7 +263,57 @@ export default function PokerApp() {
           </div>
         </>
       )}
-      {/* ...ranking, master 部分（変更なし）... */}
+
+      {activeTab === 'ranking' && (
+        <div className="space-y-4">
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-3">
+            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">期間指定フィルター</h2>
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="flex-1 p-2 bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-indigo-400" />
+              <span>〜</span>
+              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="flex-1 p-2 bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-indigo-400" />
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden text-slate-900">
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
+                <tr><th className="p-4">順位</th><th className="p-4">プレイヤー</th><th className="p-4 text-right">収支額</th></tr>
+              </thead>
+              <tbody>
+                {ranking.map((row, index) => (
+                  <tr key={row.name} className="border-b border-slate-50 last:border-0">
+                    <td className="p-4 font-black text-slate-300">#{index + 1}</td>
+                    <td className="p-4"><div className="font-bold text-slate-800">{row.name}</div></td>
+                    <td className={`p-4 text-right font-mono font-black ${row.total >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{row.total.toLocaleString()}円</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'master' && (
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-slate-900">
+          <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">プレイヤー登録・管理</h2>
+          <div className="flex gap-2 mb-6">
+            <input type="text" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} placeholder="名前を入力" className="flex-1 p-2 border-2 border-slate-100 rounded-lg outline-none focus:border-indigo-400 text-slate-900 font-bold" />
+            <button onClick={addMember} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold active:scale-95">追加</button>
+          </div>
+          <div className="space-y-2">
+            {members.map(m => (
+              <div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100">
+                <span className="font-bold text-slate-800">{m}</span>
+                {isEditMode && (
+                  <button onClick={() => deleteMember(m)} className="text-slate-300 hover:text-rose-500 p-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
