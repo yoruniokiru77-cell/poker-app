@@ -18,7 +18,7 @@ export default function PokerApp() {
   // チップ計算機用の状態
   const [calcTarget, setCalcTarget] = useState<string | null>(null);
   const [chipCounts, setChipCounts] = useState<Record<string, number>>({ "50": 0, "100": 0, "500": 0, "1000": 0, "5000": 0 });
-  const [initialStack, setInitialStack] = useState(20000); // 初期スタックのデフォルト値
+  const [initialStack, setInitialStack] = useState(30000); // 初期スタックのデフォルト値
 
   const fetchData = async () => {
     setLoading(true);
