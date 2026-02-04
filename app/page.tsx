@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useMemo } from 'react';
-import { supabase } from '../app/lib/supabase'; // パスはご自身の環境に合わせてください
+import { supabase } from '../app/lib/supabase';
 
 export default function PokerApp() {
   const [activeTab, setActiveTab] = useState<'input' | 'ranking' | 'master'>('input');
@@ -17,8 +17,9 @@ export default function PokerApp() {
 
   // チップ計算機用の状態
   const [calcTarget, setCalcTarget] = useState<string | null>(null);
-  const [chipCounts, setChipCounts] = useState<Record<string, number>>({ "50": 0, "100": 0, "500": 0, "1000": 0, "5000": 0 });
-  const [initialStack, setInitialStack] = useState(30000); // 初期スタックのデフォルト値
+  // 全プレイヤーの入力中チップ枚数を保持する
+  const [allChipCounts, setAllChipCounts] = useState<Record<string, Record<string, number>>>({});
+  const [initialStack, setInitialStack] = useState(30000);
 
   const fetchData = async () => {
     setLoading(true);
@@ -44,15 +45,25 @@ export default function PokerApp() {
     return selectedIds.reduce((sum, name) => sum + (points[name] || 0), 0);
   }, [selectedIds, points]);
 
-  // チップ計算の実行（初期スタックを差し引く）
+  // 現在選択中のターゲットのチップ枚数を取得
+  const currentChipCounts = useMemo(() => {
+    return calcTarget ? (allChipCounts[calcTarget] || { "50": 0, "100": 0, "500": 0, "1000": 0, "5000": 0 }) : {};
+  }, [calcTarget, allChipCounts]);
+
+  const updateChipCount = (val: string, count: number) => {
+    if (!calcTarget) return;
+    setAllChipCounts({
+      ...allChipCounts,
+      [calcTarget]: { ...currentChipCounts, [val]: count }
+    });
+  };
+
   const applyChipCalc = () => {
     if (!calcTarget) return;
-    const totalCounted = Object.entries(chipCounts).reduce((sum, [val, count]) => sum + (Number(val) * count), 0);
-    // 収支 = 合計 - 初期スタック
+    const totalCounted = Object.entries(currentChipCounts).reduce((sum, [val, count]) => sum + (Number(val) * count), 0);
     const profitLoss = totalCounted - initialStack;
     setPoints({ ...points, [calcTarget]: profitLoss });
     setCalcTarget(null);
-    setChipCounts({ "50": 0, "100": 0, "500": 0, "1000": 0, "5000": 0 });
   };
 
   const toggleEditMode = () => {
@@ -93,7 +104,13 @@ export default function PokerApp() {
     }));
     const { error } = await supabase.from('sessions').insert(insertData);
     if (error) alert("保存に失敗しました");
-    else { alert("清算済みとして保存しました！"); fetchData(); setSelectedIds([]); setPoints({}); }
+    else { 
+      alert("清算済みとして保存しました！"); 
+      fetchData(); 
+      setSelectedIds([]); 
+      setPoints({}); 
+      setAllChipCounts({}); // 保存後はリセット
+    }
   };
 
   const deleteMember = async (name: string) => {
@@ -184,12 +201,11 @@ export default function PokerApp() {
                 <div className="flex justify-between items-center mb-6">
                   <div>
                     <h3 className="font-black text-slate-800 text-lg">{calcTarget} さんの計算</h3>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">チップを数えて収支を算出</p>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">リロードするまで入力値は保持されます</p>
                   </div>
                   <button onClick={() => setCalcTarget(null)} className="text-slate-400 text-2xl">&times;</button>
                 </div>
 
-                {/* 初期スタック設定 */}
                 <div className="mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">初期スタック (引く分)</span>
@@ -199,7 +215,7 @@ export default function PokerApp() {
                 </div>
 
                 <div className="space-y-3 mb-6">
-                  {Object.keys(chipCounts).map(val => (
+                  {Object.keys(currentChipCounts).length > 0 && Object.keys(currentChipCounts).map(val => (
                     <div key={val} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
                       <div className="flex items-center gap-3">
                         <div className={`w-8 h-8 rounded-full border-4 border-dashed flex items-center justify-center text-[10px] font-black 
@@ -212,8 +228,8 @@ export default function PokerApp() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-bold text-slate-300">枚</span>
-                        <input type="number" value={chipCounts[val] || ""} placeholder="0" 
-                          onChange={(e) => setChipCounts({...chipCounts, [val]: parseInt(e.target.value) || 0})}
+                        <input type="number" value={currentChipCounts[val] || ""} placeholder="0" 
+                          onChange={(e) => updateChipCount(val, parseInt(e.target.value) || 0)}
                           className="w-20 p-2 bg-slate-50 border border-transparent rounded-lg text-right font-mono font-bold text-slate-900 outline-none focus:border-indigo-400" />
                       </div>
                     </div>
@@ -224,13 +240,13 @@ export default function PokerApp() {
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
                     <div className="text-[8px] font-black text-slate-400 uppercase">数えた合計</div>
                     <div className="text-sm font-mono font-bold text-slate-600">
-                      {Object.entries(chipCounts).reduce((sum, [val, count]) => sum + (Number(val) * count), 0).toLocaleString()}
+                      {Object.entries(currentChipCounts).reduce((sum, [val, count]) => sum + (Number(val) * count), 0).toLocaleString()}
                     </div>
                   </div>
                   <div className="bg-indigo-50 p-3 rounded-2xl border border-indigo-100">
                     <div className="text-[8px] font-black text-indigo-400 uppercase">反映される収支</div>
-                    <div className={`text-sm font-mono font-black ${Object.entries(chipCounts).reduce((sum, [val, count]) => sum + (Number(val) * count), 0) - initialStack >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
-                      {(Object.entries(chipCounts).reduce((sum, [val, count]) => sum + (Number(val) * count), 0) - initialStack).toLocaleString()}
+                    <div className={`text-sm font-mono font-black ${Object.entries(currentChipCounts).reduce((sum, [val, count]) => sum + (Number(val) * count), 0) - initialStack >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
+                      {(Object.entries(currentChipCounts).reduce((sum, [val, count]) => sum + (Number(val) * count), 0) - initialStack).toLocaleString()}
                     </div>
                   </div>
                 </div>
@@ -242,8 +258,8 @@ export default function PokerApp() {
             </div>
           )}
 
-          {/* ...以下のリスト表示などは変更なし... */}
           <div className="space-y-4">
+            {/* ...Recent Events 部分（変更なし）... */}
             <div className="flex justify-between items-center px-1">
               <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">最近の記録</h2>
               <button onClick={() => setFilterUnpaid(!filterUnpaid)} className={`text-[10px] font-black px-3 py-1 rounded-full border transition-all ${filterUnpaid ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-400 border-slate-200'}`}>
@@ -272,7 +288,7 @@ export default function PokerApp() {
           </div>
         </>
       )}
-      {/* ...ranking, master タブのコードは変更なし... */}
+      {/* ...ranking, master 部分（変更なし）... */}
     </div>
   );
 }
