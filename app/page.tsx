@@ -12,10 +12,11 @@ export default function PokerApp() {
   const [newMemberName, setNewMemberName] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [points, setPoints] = useState<Record<string, number>>({});
+  // モード管理: pt か yen か
+  const [inputModes, setInputModes] = useState<Record<string, 'pt' | 'yen'>>({});
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // チップ計算機用の状態
   const [calcTarget, setCalcTarget] = useState<string | null>(null);
   const [allChipCounts, setAllChipCounts] = useState<Record<string, Record<string, number>>>({});
   const [initialStack, setInitialStack] = useState(30000);
@@ -40,9 +41,17 @@ export default function PokerApp() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const currentTotalPoints = useMemo(() => {
-    return selectedIds.reduce((sum, name) => sum + (points[name] || 0), 0);
-  }, [selectedIds, points]);
+  // 保存用の最終金額（円）を算出するロジック
+  const getFinalAmount = (name: string) => {
+    const val = points[name] || 0;
+    const mode = inputModes[name] || 'pt'; // デフォルトは pt
+    return mode === 'pt' ? val / 2 : val;
+  };
+
+  // 合計金額（円）が0かチェック
+  const currentTotalAmount = useMemo(() => {
+    return selectedIds.reduce((sum, name) => sum + getFinalAmount(name), 0);
+  }, [selectedIds, points, inputModes]);
 
   const currentChipCounts = useMemo(() => {
     return calcTarget ? (allChipCounts[calcTarget] || { "50": 0, "100": 0, "500": 0, "1000": 0, "5000": 0 }) : {};
@@ -61,6 +70,7 @@ export default function PokerApp() {
     const totalCounted = Object.entries(currentChipCounts).reduce((sum, [val, count]) => sum + (Number(val) * count), 0);
     const profitLoss = totalCounted - initialStack;
     setPoints({ ...points, [calcTarget]: profitLoss });
+    setInputModes({ ...inputModes, [calcTarget]: 'pt' }); // チップ計算機を使ったら pt モードへ
     setCalcTarget(null);
   };
 
@@ -74,36 +84,19 @@ export default function PokerApp() {
     }
   };
 
-  const filteredEvents = useMemo(() => filterUnpaid ? events.filter(ev => ev.status === "未清算") : events, [events, filterUnpaid]);
-
-  const ranking = useMemo(() => {
-    const stats: Record<string, { total: number; games: number }> = {};
-    events.forEach(ev => {
-      const evTime = new Date(ev.rawDate).getTime();
-      if (startDate && evTime < new Date(startDate).getTime()) return;
-      if (endDate && evTime > new Date(endDate).setHours(23, 59, 59, 999)) return;
-      ev.data.forEach((d: any) => {
-        if (!stats[d.name]) stats[d.name] = { total: 0, games: 0 };
-        stats[d.name].total += d.amount;
-        stats[d.name].games += 1;
-      });
-    });
-    return Object.entries(stats).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.total - a.total);
-  }, [events, startDate, endDate]);
-
   const saveEvent = async () => {
-    if (currentTotalPoints !== 0) return alert("合計を0にしてください（現在は " + currentTotalPoints + "pt）");
+    if (currentTotalAmount !== 0) return alert("合計を0円にしてください（現在は " + currentTotalAmount + "円）");
     const eventId = crypto.randomUUID();
     const insertData = selectedIds.map(name => ({ 
       event_id: eventId, 
       player_name: name, 
-      amount: (points[name] || 0) / 2, 
+      amount: getFinalAmount(name), 
       status: "清算済み" 
     }));
     const { error } = await supabase.from('sessions').insert(insertData);
     if (error) alert("保存に失敗しました");
     else { 
-      alert("清算済みとして保存しました！"); 
+      alert("保存しました！"); 
       fetchData(); 
       setSelectedIds([]); 
       setPoints({}); 
@@ -161,31 +154,56 @@ export default function PokerApp() {
       {activeTab === 'input' && (
         <>
           <div className="bg-white p-5 rounded-2xl shadow-sm mb-6 border border-slate-100">
-            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">新規セッション記録 (pt入力)</h2>
+            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">新規セッション記録</h2>
             <div className="flex flex-wrap gap-2 mb-6">
               {members.map(m => (
                 <button key={m} onClick={() => setSelectedIds(prev => prev.includes(m) ? prev.filter(n => n !== m) : [...prev, m])} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedIds.includes(m) ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>{m}</button>
               ))}
             </div>
+            
             {selectedIds.map(name => (
-              <div key={name} className="flex items-center justify-between mb-3">
-                <div className="flex flex-col">
+              <div key={name} className="flex flex-col mb-4 pb-4 border-b border-slate-50 last:border-0">
+                <div className="flex items-center justify-between mb-2">
                   <span className="font-bold text-slate-700">{name}</span>
-                  <span className="text-[10px] text-slate-400 font-bold">金額: {(points[name] || 0) / 2}円</span>
+                  {/* pt / 円 切り替えスイッチ */}
+                  <div className="flex bg-slate-100 p-1 rounded-lg">
+                    <button 
+                      onClick={() => setInputModes({...inputModes, [name]: 'pt'})}
+                      className={`px-3 py-1 text-[10px] font-black rounded-md transition-all ${(inputModes[name] || 'pt') === 'pt' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}
+                    >PT</button>
+                    <button 
+                      onClick={() => setInputModes({...inputModes, [name]: 'yen'})}
+                      className={`px-3 py-1 text-[10px] font-black rounded-md transition-all ${inputModes[name] === 'yen' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}
+                    >円</button>
+                  </div>
                 </div>
+
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setCalcTarget(name)} className="p-2 bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600 transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M12 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h8zM4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H4z"/><path d="M4 2.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-2zm0 4a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm0 3a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm0 3a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm3-6a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm0 3a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm0 3a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm3-6a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm0 3a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1z"/></svg>
-                  </button>
-                  <input type="number" placeholder="0" value={points[name] || ""} onChange={(e) => setPoints({ ...points, [name]: parseInt(e.target.value) || 0 })} className="w-24 p-2 border-2 border-slate-100 rounded-lg text-right focus:border-indigo-400 outline-none font-mono text-slate-900 font-bold" />
-                  <span className="text-xs font-bold text-slate-400">pt</span>
+                  {(inputModes[name] || 'pt') === 'pt' && (
+                    <button onClick={() => setCalcTarget(name)} className="p-2 bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M12 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h8zM4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H4z"/><path d="M4 2.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-2zm0 4a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm0 3a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm0 3a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm3-6a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm0 3a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm0 3a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm3-6a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm0 3a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1z"/></svg>
+                    </button>
+                  )}
+                  <input 
+                    type="number" 
+                    placeholder="0" 
+                    value={points[name] || ""} 
+                    onChange={(e) => setPoints({ ...points, [name]: parseInt(e.target.value) || 0 })} 
+                    className="flex-1 p-2 border-2 border-slate-100 rounded-lg text-right focus:border-indigo-400 outline-none font-mono text-slate-900 font-bold" 
+                  />
+                  <span className="text-xs font-bold text-slate-400 w-8">
+                    {(inputModes[name] || 'pt') === 'pt' ? 'pt' : '円'}
+                  </span>
                 </div>
+                {(inputModes[name] || 'pt') === 'pt' && (
+                  <div className="text-[10px] text-right text-slate-400 font-bold mt-1">金額換算: {(points[name] || 0) / 2} 円</div>
+                )}
               </div>
             ))}
             
             {selectedIds.length > 0 && (
-              <div className={`mt-4 p-2 rounded-lg text-center font-bold text-xs ${currentTotalPoints === 0 ? 'text-emerald-600 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
-                {currentTotalPoints === 0 ? '✓ 合計が0になりました' : `合計を0にしてください (現在: ${currentTotalPoints}pt)`}
+              <div className={`mt-4 p-2 rounded-lg text-center font-bold text-xs ${currentTotalAmount === 0 ? 'text-emerald-600 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
+                {currentTotalAmount === 0 ? '✓ 合計が0円になりました' : `合計を0円にしてください (現在: ${currentTotalAmount.toLocaleString()}円)`}
               </div>
             )}
 
@@ -194,14 +212,11 @@ export default function PokerApp() {
 
           {calcTarget && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-              <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-in slide-in-from-bottom duration-300">
+              <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
                 <div className="flex justify-between items-center mb-6">
-                  <div>
-                    <h3 className="font-black text-slate-800 text-lg">{calcTarget} さんの計算</h3>
-                  </div>
+                  <h3 className="font-black text-slate-800 text-lg">{calcTarget} さんの計算</h3>
                   <button onClick={() => setCalcTarget(null)} className="text-slate-400 text-2xl">&times;</button>
                 </div>
-
                 <div className="mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">初期スタック</span>
@@ -209,8 +224,7 @@ export default function PokerApp() {
                   </div>
                   <input type="range" min="0" max="100000" step="5000" value={initialStack} onChange={(e) => setInitialStack(parseInt(e.target.value))} className="w-full accent-indigo-600" />
                 </div>
-
-                <div className="space-y-3 mb-6 text-slate-900">
+                <div className="space-y-3 mb-6">
                   {Object.keys(currentChipCounts).map(val => (
                     <div key={val} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
                       <div className={`w-8 h-8 rounded-full border-4 border-dashed flex items-center justify-center text-[10px] font-black 
@@ -221,21 +235,18 @@ export default function PokerApp() {
                         <span className="text-[10px] font-bold text-slate-300">枚</span>
                         <input type="number" value={currentChipCounts[val] || ""} placeholder="0" 
                           onChange={(e) => updateChipCount(val, parseInt(e.target.value) || 0)}
-                          className="w-20 p-2 bg-slate-50 border border-transparent rounded-lg text-right font-mono font-bold text-slate-900 outline-none focus:border-indigo-400" />
+                          className="w-20 p-2 bg-slate-50 border border-transparent rounded-lg text-right font-mono font-bold text-slate-900 outline-none" />
                       </div>
                     </div>
                   ))}
                 </div>
-
-                <button onClick={applyChipCalc} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 transition-all">
-                  収支を反映する
-                </button>
+                <button onClick={applyChipCalc} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg">収支を反映する</button>
               </div>
             </div>
           )}
 
           <div className="space-y-4">
-            <div className="flex justify-between items-center px-1 text-slate-900">
+            <div className="flex justify-between items-center px-1">
               <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">最近の記録</h2>
               <button onClick={() => setFilterUnpaid(!filterUnpaid)} className={`text-[10px] font-black px-3 py-1 rounded-full border transition-all ${filterUnpaid ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-400 border-slate-200'}`}>
                 {filterUnpaid ? '未清算のみ表示中' : 'すべて表示'}
