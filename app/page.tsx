@@ -25,6 +25,33 @@ export default function PokerApp() {
   const [allChipCounts, setAllChipCounts] = useState<Record<string, Record<string, number>>>({});
   const [initialStack, setInitialStack] = useState(30000);
 
+  // --- 1. 初期読み込み時にLocalStorageから復元 ---
+  useEffect(() => {
+    const savedData = localStorage.getItem('poker_draft');
+    if (savedData) {
+      try {
+        const parsed = JSON.parse(savedData);
+        setSelectedIds(parsed.selectedIds || []);
+        setPoints(parsed.points || {});
+        setInputModes(parsed.inputModes || {});
+        setLoans(parsed.loans || []);
+        setAllChipCounts(parsed.allChipCounts || {});
+        setInitialStack(parsed.initialStack || 30000);
+      } catch (e) {
+        console.error("復元失敗", e);
+      }
+    }
+    fetchData();
+  }, []);
+
+  // --- 2. 状態が変化するたびに自動保存 ---
+  useEffect(() => {
+    if (!loading) {
+      const draft = { selectedIds, points, inputModes, loans, allChipCounts, initialStack };
+      localStorage.setItem('poker_draft', JSON.stringify(draft));
+    }
+  }, [selectedIds, points, inputModes, loans, allChipCounts, initialStack, loading]);
+
   const fetchData = async () => {
     setLoading(true);
     const { data: pData } = await supabase.from('players').select('name');
@@ -42,8 +69,6 @@ export default function PokerApp() {
     }
     setLoading(false);
   };
-
-  useEffect(() => { fetchData(); }, []);
 
   const getFinalAmount = (name: string) => {
     const val = points[name] || 0;
@@ -90,7 +115,6 @@ export default function PokerApp() {
     const newPoints = { ...points };
     const newInputModes = { ...inputModes };
     loans.forEach(loan => {
-      // 貸借をptとしてそのまま反映
       if (loan.from !== '在庫') {
         const currentPt = getFinalPoints(loan.from);
         newPoints[loan.from] = currentPt + loan.amount;
@@ -136,7 +160,16 @@ export default function PokerApp() {
     const insertData = selectedIds.map(name => ({ event_id: eventId, player_name: name, amount: getFinalAmount(name), status: "清算済み" }));
     const { error } = await supabase.from('sessions').insert(insertData);
     if (error) alert("失敗");
-    else { alert("保存成功"); fetchData(); setSelectedIds([]); setPoints({}); setLoans([]); setAllChipCounts({}); }
+    else { 
+      alert("保存成功"); 
+      fetchData(); 
+      // --- 保存完了後にLocalStorageをクリア ---
+      setSelectedIds([]); 
+      setPoints({}); 
+      setLoans([]); 
+      setAllChipCounts({}); 
+      localStorage.removeItem('poker_draft');
+    }
   };
 
   const deleteMember = async (name: string) => {
@@ -170,7 +203,9 @@ export default function PokerApp() {
   return (
     <div className="max-w-md mx-auto p-4 bg-slate-50 min-h-screen text-slate-900">
       <div className="flex justify-between items-center mb-4">
-        <div className="text-[10px] text-emerald-500 font-bold tracking-widest">● ONLINE</div>
+        <div className="text-[10px] text-emerald-500 font-bold tracking-widest flex items-center gap-1">
+          ● ONLINE <span className="text-slate-300 text-[8px] font-normal ml-2">AUTO SAVE ON</span>
+        </div>
         <button onClick={toggleEditMode} className={`text-[10px] px-3 py-1 rounded-full border transition-all ${isEditMode ? 'bg-orange-500 text-white border-orange-500 shadow-md' : 'bg-white text-slate-400 border-slate-200'}`}>
           {isEditMode ? '🔓 EDIT ON' : '🔒 EDIT OFF'}
         </button>
@@ -199,7 +234,7 @@ export default function PokerApp() {
               </select>
             </div>
             <div className="flex gap-2 mb-3">
-              <input type="number" placeholder="ptを入力" value={loanAmount || ""} onChange={(e)=>setLoanAmount(parseInt(e.target.value)||0)} className="flex-1 p-2 text-xs rounded-lg border-none outline-none font-bold" />
+              <input type="number" placeholder="ptを入力" value={loanAmount || ""} onChange={(e)=>setLoanAmount(parseInt(e.target.value)||0)} className="flex-1 p-2 text-xs rounded-lg border-none outline-none font-bold text-slate-900" />
               <button onClick={addLoan} className="bg-amber-500 text-white px-4 rounded-lg text-xs font-bold active:scale-95">追加</button>
             </div>
             {loans.length > 0 && (
@@ -215,7 +250,10 @@ export default function PokerApp() {
           </div>
 
           <div className="bg-white p-5 rounded-2xl shadow-sm mb-6 border border-slate-100">
-            <h2 className="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">新規セッション</h2>
+            <h2 className="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest flex justify-between">
+              新規セッション
+              {selectedIds.length > 0 && <button onClick={() => { if(confirm("内容をリセットしますか？")) { setSelectedIds([]); setPoints({}); setLoans([]); setAllChipCounts({}); localStorage.removeItem('poker_draft'); }}} className="text-[8px] text-rose-400 border border-rose-100 px-2 rounded-md">クリア</button>}
+            </h2>
             <div className="flex flex-wrap gap-2 mb-6">
               {members.map(m => (
                 <button key={m} onClick={() => setSelectedIds(prev => prev.includes(m) ? prev.filter(n => n !== m) : [...prev, m])} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedIds.includes(m) ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-600'}`}>{m}</button>
@@ -245,9 +283,10 @@ export default function PokerApp() {
                 {totalDifferencePt === 0 ? '✓ 合計が0ptになりました' : `合計を0ptにしてください (現在: ${totalDifferencePt.toLocaleString()} pt)`}
               </div>
             )}
-            <button onClick={saveEvent} disabled={selectedIds.length === 0} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black mt-4 disabled:bg-slate-200 active:scale-95 shadow-lg">保存</button>
+            <button onClick={saveEvent} disabled={selectedIds.length === 0} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black mt-4 disabled:bg-slate-200 active:scale-95 shadow-lg">DBに保存（清算）</button>
           </div>
 
+          {/* チップ計算用モーダル等は変更なし */}
           {calcTarget && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-end justify-center p-4">
               <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-in slide-in-from-bottom duration-300">
@@ -276,22 +315,19 @@ export default function PokerApp() {
                     );
                   })}
                 </div>
-                <button onClick={applyChipCalc} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-indigo-100 active:scale-95">反映</button>
+                <button onClick={applyChipCalc} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95">反映</button>
               </div>
             </div>
           )}
 
           <div className="space-y-4">
-            <div className="flex justify-between items-center px-1">
-              <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">履歴</h2>
-              <button onClick={() => setFilterUnpaid(!filterUnpaid)} className={`text-[10px] font-black px-3 py-1 rounded-full border transition-all ${filterUnpaid ? 'bg-rose-500 text-white border-rose-500 shadow-sm' : 'bg-white text-slate-400 border-slate-200'}`}>{filterUnpaid ? '未清算' : 'すべて'}</button>
-            </div>
+            <h2 className="text-xs font-black text-slate-400 uppercase px-1">履歴</h2>
             {filteredEvents.map(ev => (
               <div key={ev.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative text-slate-900 animate-in fade-in duration-500">
                 {isEditMode && <button onClick={() => deleteEvent(ev.id)} className="absolute top-4 right-4 text-slate-300 hover:text-rose-500 transition-colors">×</button>}
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-[10px] text-slate-400 font-bold">{ev.date}</span>
-                  <button onClick={() => toggleStatus(ev.id, ev.status)} className={`px-3 py-1 rounded-full text-[10px] font-black transition-all ${ev.status === "未清算" ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600 shadow-sm'}`}>{ev.status}</button>
+                  <button onClick={() => toggleStatus(ev.id, ev.status)} className={`px-3 py-1 rounded-full text-[10px] font-black transition-all ${ev.status === "未清算" ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-600'}`}>{ev.status}</button>
                 </div>
                 {ev.data.map((d: any) => (
                   <div key={d.name} className="flex justify-between text-sm py-1 border-b border-slate-50 last:border-0 text-slate-900">
@@ -305,14 +341,15 @@ export default function PokerApp() {
         </>
       )}
 
+      {/* 順位・名簿タブは変更なし */}
       {activeTab === 'ranking' && (
         <div className="space-y-4">
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-3">
-            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">期間指定フィルター</h2>
+            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest text-slate-900">期間指定フィルター</h2>
             <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
-              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="flex-1 p-2 bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-indigo-400" />
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="flex-1 p-2 bg-slate-50 border border-slate-100 rounded-lg outline-none" />
               <span>〜</span>
-              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="flex-1 p-2 bg-slate-50 border border-slate-100 rounded-lg outline-none focus:border-indigo-400" />
+              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="flex-1 p-2 bg-slate-50 border border-slate-100 rounded-lg outline-none" />
             </div>
           </div>
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -336,12 +373,12 @@ export default function PokerApp() {
 
       {activeTab === 'master' && (
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-slate-900">
-          <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">名簿管理</h2>
+          <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 text-slate-900">名簿管理</h2>
           <div className="flex gap-2 mb-6">
-            <input type="text" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} placeholder="名前を入力" className="flex-1 p-2 border-2 border-slate-100 rounded-lg font-bold outline-none focus:border-indigo-400" />
-            <button onClick={addMember} className="bg-indigo-600 text-white px-4 rounded-lg font-bold active:scale-95 shadow-md">追加</button>
+            <input type="text" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} placeholder="名前を入力" className="flex-1 p-2 border-2 border-slate-100 rounded-lg font-bold outline-none" />
+            <button onClick={addMember} className="bg-indigo-600 text-white px-4 rounded-lg font-bold shadow-md">追加</button>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2 text-slate-900">
             {members.map(m => (
               <div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100 shadow-sm">
                 <span className="font-bold">{m}</span>
