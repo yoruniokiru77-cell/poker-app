@@ -25,7 +25,6 @@ export default function PokerApp() {
   const [allChipCounts, setAllChipCounts] = useState<Record<string, Record<string, number>>>({});
   const [initialStack, setInitialStack] = useState(30000);
 
-  // --- 1. 初期読み込み時にLocalStorageから復元 ---
   useEffect(() => {
     const savedData = localStorage.getItem('poker_draft');
     if (savedData) {
@@ -44,7 +43,6 @@ export default function PokerApp() {
     fetchData();
   }, []);
 
-  // --- 2. 状態が変化するたびに自動保存 ---
   useEffect(() => {
     if (!loading) {
       const draft = { selectedIds, points, inputModes, loans, allChipCounts, initialStack };
@@ -65,7 +63,14 @@ export default function PokerApp() {
         acc[curr.event_id].data.push({ name: curr.player_name, amount: curr.amount });
         return acc;
       }, {});
-      setEvents(Object.values(grouped));
+
+      // 各イベント内のプレイヤーデータを金額の降順にソート
+      const sortedEvents = Object.values(grouped).map((ev: any) => ({
+        ...ev,
+        data: ev.data.sort((a: any, b: any) => b.amount - a.amount)
+      }));
+
+      setEvents(sortedEvents);
     }
     setLoading(false);
   };
@@ -163,7 +168,6 @@ export default function PokerApp() {
     else { 
       alert("保存成功"); 
       fetchData(); 
-      // --- 保存完了後にLocalStorageをクリア ---
       setSelectedIds([]); 
       setPoints({}); 
       setLoans([]); 
@@ -286,7 +290,6 @@ export default function PokerApp() {
             <button onClick={saveEvent} disabled={selectedIds.length === 0} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black mt-4 disabled:bg-slate-200 active:scale-95 shadow-lg">DBに保存（清算）</button>
           </div>
 
-          {/* チップ計算用モーダル等は変更なし */}
           {calcTarget && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-end justify-center p-4">
               <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-in slide-in-from-bottom duration-300">
@@ -341,7 +344,6 @@ export default function PokerApp() {
         </>
       )}
 
-      {/* 順位・名簿タブは変更なし */}
       {activeTab === 'ranking' && (
         <div className="space-y-4">
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-3">
