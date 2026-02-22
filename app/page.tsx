@@ -18,7 +18,7 @@ export default function PokerApp() {
 
   // ドラッグ&ドロップ・ポップアップ用のステート
   const [draggedEventId, setDraggedEventId] = useState<string | null>(null);
-  const [sumPopup, setSumPopup] = useState<{show: boolean, total: number, details: string} | null>(null);
+  const [sumPopup, setSumPopup] = useState<{show: boolean, results: {name: string, total: number}[], dates: string} | null>(null);
 
   const [loans, setLoans] = useState<{from: string, to: string, amount: number}[]>([]);
   const [loanFrom, setLoanFrom] = useState('');
@@ -74,19 +74,26 @@ export default function PokerApp() {
     setLoading(false);
   };
 
-  // --- ドラッグ&ドロップのロジック ---
+  // --- ドラッグ&ドロップ：参加者ごとの合計計算 ---
   const handleDragStart = (id: string) => setDraggedEventId(id);
   const handleDrop = (targetId: string) => {
     if (!draggedEventId || draggedEventId === targetId) return;
     const ev1 = events.find(e => e.id === draggedEventId);
     const ev2 = events.find(e => e.id === targetId);
     if (ev1 && ev2) {
-      const sum1 = ev1.data.reduce((s: number, d: any) => s + (d.amount > 0 ? d.amount : 0), 0);
-      const sum2 = ev2.data.reduce((s: number, d: any) => s + (d.amount > 0 ? d.amount : 0), 0);
+      const combinedTotals: Record<string, number> = {};
+      [...ev1.data, ...ev2.data].forEach((p: any) => {
+        combinedTotals[p.name] = (combinedTotals[p.name] || 0) + p.amount;
+      });
+
+      const results = Object.entries(combinedTotals)
+        .map(([name, total]) => ({ name, total }))
+        .sort((a, b) => b.total - a.total);
+
       setSumPopup({
         show: true,
-        total: sum1 + sum2,
-        details: `${ev1.date.split(' ')[0]} (${sum1.toLocaleString()}円) + ${ev2.date.split(' ')[0]} (${sum2.toLocaleString()}円)`
+        results,
+        dates: `${ev1.date.split(' ')[0]} & ${ev2.date.split(' ')[0]}`
       });
     }
     setDraggedEventId(null);
@@ -217,9 +224,18 @@ export default function PokerApp() {
 
   return (
     <div className="max-w-md mx-auto p-4 bg-slate-50 min-h-screen text-slate-900 relative">
+      <style jsx global>{`
+        .drag-card {
+          user-select: none;
+          -webkit-user-select: none;
+          -webkit-touch-callout: none;
+          touch-action: pan-y;
+        }
+      `}</style>
+
       <div className="flex justify-between items-center mb-4">
-        <div className="text-[10px] text-emerald-500 font-bold tracking-widest flex items-center gap-1">
-          ● ONLINE <span className="text-slate-300 text-[8px] font-normal ml-2">AUTO SAVE ON</span>
+        <div className="text-[10px] text-emerald-500 font-bold flex items-center gap-1">
+          ● ONLINE <span className="text-slate-300 text-[8px] font-normal ml-2 tracking-widest">AUTO SAVE ON</span>
         </div>
         <button onClick={toggleEditMode} className={`text-[10px] px-3 py-1 rounded-full border transition-all ${isEditMode ? 'bg-orange-500 text-white border-orange-500 shadow-md' : 'bg-white text-slate-400 border-slate-200'}`}>
           {isEditMode ? '🔓 EDIT ON' : '🔒 EDIT OFF'}
@@ -293,18 +309,17 @@ export default function PokerApp() {
             <button onClick={saveEvent} disabled={selectedIds.length === 0} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black mt-4 disabled:bg-slate-200 active:scale-95 shadow-lg">DBに保存</button>
           </div>
 
-          <div className="space-y-4">
-            <h2 className="text-xs font-black text-slate-400 uppercase px-1 flex justify-between">
-              履歴 <span>(重ねて合計確認)</span>
-            </h2>
+          <div className="space-y-4 pb-10">
+            <h2 className="text-xs font-black text-slate-400 uppercase px-1">履歴 (重ねて通算確認)</h2>
             {filteredEvents.map(ev => (
               <div 
                 key={ev.id} 
                 draggable 
                 onDragStart={() => handleDragStart(ev.id)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleDrop(ev.id)}
-                className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative text-slate-900 cursor-grab active:cursor-grabbing transition-transform active:scale-95"
+                onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = '#f1f5f9'; }}
+                onDragLeave={(e) => { e.currentTarget.style.backgroundColor = 'white'; }}
+                onDrop={(e) => { e.currentTarget.style.backgroundColor = 'white'; handleDrop(ev.id); }}
+                className={`drag-card bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative text-slate-900 cursor-grab active:cursor-grabbing transition-all ${draggedEventId === ev.id ? 'opacity-40 scale-95' : ''}`}
               >
                 {isEditMode && <button onClick={() => deleteEvent(ev.id)} className="absolute top-4 right-4 text-slate-300 hover:text-rose-500">×</button>}
                 <div className="flex items-center gap-2 mb-3">
@@ -323,19 +338,32 @@ export default function PokerApp() {
         </>
       )}
 
-      {/* 合計ポップアップ */}
+      {/* 2セッション合計ポップアップ */}
       {sumPopup?.show && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-6 animate-in fade-in duration-200" onClick={() => setSumPopup(null)}>
-          <div className="bg-white w-full max-w-xs rounded-3xl p-8 shadow-2xl text-center scale-up-center" onClick={(e) => e.stopPropagation()}>
-            <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">2セッション合計</div>
-            <div className="text-3xl font-black text-indigo-600 font-mono mb-4">{sumPopup.total.toLocaleString()}円</div>
-            <div className="text-[10px] text-slate-400 font-bold leading-relaxed">{sumPopup.details}</div>
-            <button onClick={() => setSumPopup(null)} className="mt-8 w-full py-3 bg-slate-900 text-white rounded-2xl font-black text-xs">閉じる</button>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-6" onClick={() => setSumPopup(null)}>
+          <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl animate-in zoom-in duration-200" onClick={(e) => e.stopPropagation()}>
+            <div className="text-center mb-6">
+              <div className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] mb-1">通算収支確認</div>
+              <div className="text-xs font-bold text-slate-400">{sumPopup.dates}</div>
+            </div>
+            
+            <div className="space-y-3 max-h-[50vh] overflow-y-auto mb-8 pr-2">
+              {sumPopup.results.map(res => (
+                <div key={res.name} className="flex justify-between items-center py-2 border-b border-slate-50 last:border-0">
+                  <span className="font-bold text-slate-700">{res.name}</span>
+                  <span className={`font-mono font-black ${res.total >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>
+                    {res.total >= 0 ? `+${res.total.toLocaleString()}` : res.total.toLocaleString()}円
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <button onClick={() => setSumPopup(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs shadow-lg active:scale-95 transition-transform">閉じる</button>
           </div>
         </div>
       )}
 
-      {/* チップ計算モーダル(中身は以前と同じ) */}
+      {/* チップ計算モーダル */}
       {calcTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-end justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
@@ -349,12 +377,12 @@ export default function PokerApp() {
                 return (
                   <div key={val} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-100 shadow-sm text-slate-900">
                     <div className="w-8 h-8 rounded-full border-2 border-dashed flex items-center justify-center text-[10px] font-black text-indigo-500">{val}</div>
-                    <input type="number" value={currentCounts[val] || ""} placeholder="0" onChange={(e) => updateChipCount(val, parseInt(e.target.value) || 0)} className="w-20 p-2 bg-slate-50 border-transparent rounded-lg text-right font-mono font-bold" />
+                    <input type="number" value={currentCounts[val] || ""} placeholder="0" onChange={(e) => updateChipCount(val, parseInt(e.target.value) || 0)} className="w-20 p-2 bg-slate-50 border-transparent rounded-lg text-right font-mono font-bold outline-none" />
                   </div>
                 );
               })}
             </div>
-            <button onClick={applyChipCalc} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black">反映</button>
+            <button onClick={applyChipCalc} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg">反映</button>
           </div>
         </div>
       )}
@@ -375,7 +403,7 @@ export default function PokerApp() {
               <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase"><th className="p-4">順位</th><th className="p-4">氏名</th><th className="p-4 text-right">収支</th></tr></thead>
               <tbody>
                 {ranking.map((row, index) => (
-                  <tr key={row.name} className="border-b border-slate-50 last:border-0"><td className="p-4 text-slate-300">#{index+1}</td><td className="p-4 font-bold">{row.name}</td><td className={`p-4 text-right font-mono font-bold ${row.total >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{row.total.toLocaleString()}円</td></tr>
+                  <tr key={row.name} className="border-b border-slate-50 last:border-0"><td className="p-4 text-slate-300">#{index+1}</td><td className="p-4 font-bold">{row.name}</td><td className={`p-4 text-right font-mono font-black ${row.total >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{row.total.toLocaleString()}円</td></tr>
                 ))}
               </tbody>
             </table>
@@ -386,13 +414,13 @@ export default function PokerApp() {
       {activeTab === 'master' && (
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-slate-900">
           <h2 className="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">名簿管理</h2>
-          <div className="flex gap-2 mb-6 text-slate-900">
+          <div className="flex gap-2 mb-6">
             <input type="text" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} placeholder="名前を入力" className="flex-1 p-2 border-2 border-slate-100 rounded-lg font-bold outline-none" />
             <button onClick={addMember} className="bg-indigo-600 text-white px-4 rounded-lg font-bold">追加</button>
           </div>
-          <div className="space-y-2 text-slate-900">
+          <div className="space-y-2">
             {members.map(m => (
-              <div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100"><span className="font-bold">{m}</span>{isEditMode && <button onClick={() => deleteMember(m)} className="text-slate-300 hover:text-rose-500">×</button>}</div>
+              <div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100"><span className="font-bold">{m}</span>{isEditMode && <button onClick={() => deleteMember(m)} className="text-slate-300 hover:text-rose-500 transition-colors">×</button>}</div>
             ))}
           </div>
         </div>
