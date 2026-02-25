@@ -4,13 +4,11 @@ import { supabase } from '../app/lib/supabase';
 
 export default function PokerApp() {
   const [activeTab, setActiveTab] = useState<'input' | 'ranking' | 'master'>('input');
-  const [filterUnpaid, setFilterUnpaid] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
   const [members, setMembers] = useState<string[]>([]);
   const [newMemberName, setNewMemberName] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [unpaidSelected, setUnpaidSelected] = useState<string[]>([]); // 未精算として保存する人のチェック用
   const [points, setPoints] = useState<Record<string, number>>({});
   const [inputModes, setInputModes] = useState<Record<string, 'pt' | 'yen'>>({});
   const [events, setEvents] = useState<any[]>([]);
@@ -39,19 +37,10 @@ export default function PokerApp() {
         setInputModes(parsed.inputModes || {});
         setLoans(parsed.loans || []);
         setIsLoanApplied(parsed.isLoanApplied || false);
-        setAllChipCounts(parsed.allChipCounts || {});
-        setInitialStack(parsed.initialStack || 30000);
       } catch (e) { console.error(e); }
     }
     fetchData();
   }, []);
-
-  useEffect(() => {
-    if (!loading) {
-      const draft = { selectedIds, points, inputModes, loans, isLoanApplied, allChipCounts, initialStack };
-      localStorage.setItem('poker_draft', JSON.stringify(draft));
-    }
-  }, [selectedIds, points, inputModes, loans, isLoanApplied, allChipCounts, initialStack, loading]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -63,7 +52,7 @@ export default function PokerApp() {
         if (!acc[curr.event_id]) {
           acc[curr.event_id] = { id: curr.event_id, rawDate: curr.created_at, date: new Date(curr.created_at).toLocaleString('ja-JP'), status: curr.status, data: [] };
         }
-        acc[curr.event_id].data.push({ name: curr.player_name, amount: curr.amount });
+        acc[curr.event_id].data.push({ name: curr.player_name, amount: curr.amount, status: curr.status });
         return acc;
       }, {});
       setEvents(Object.values(grouped).map((ev: any) => ({ ...ev, data: ev.data.sort((a: any, b: any) => b.amount - a.amount) })));
@@ -86,6 +75,9 @@ export default function PokerApp() {
   const targetTotalWithHouse = useMemo(() => (selectedIds.length * initialStack) + houseLoanSurplus, [selectedIds.length, initialStack, houseLoanSurplus]);
   const totalDiff = currentTotalInHand - targetTotalWithHouse;
 
+  // ★「保存対象（未精算チェックを入れた人）」の収支合計を計算
+  const selectedUnpaidTotal = useMemo(() => unpaidSelected.reduce((sum, id) => sum + getRawPt(id), 0), [unpaidSelected, points, inputModes]);
+
   const applyDeductAndLoans = () => {
     if (totalDiff !== 0) return alert("チップの合計が一致していません。");
     const newPoints = { ...points };
@@ -100,19 +92,29 @@ export default function PokerApp() {
   };
 
   const saveEvent = async () => {
-    if (currentTotalInHand !== 0) return alert("合計を0ptにしてください。");
+    if (unpaidSelected.length === 0) return alert("保存する人をチェックしてください（未精算者選択）");
+    if (selectedUnpaidTotal !== 0) return alert(`チェックした人の合計が ${selectedUnpaidTotal}pt です。0ptにする必要があります。`);
+    
     const eventId = crypto.randomUUID();
-    const insertData = selectedIds.map(name => ({ event_id: eventId, player_name: name, amount: getRawPt(name) / 2, status: "清算済み" }));
+    // チェックされた人だけを「未精算」として保存、それ以外（もし選んでいれば）は「清算済み」
+    const insertData = unpaidSelected.map(name => ({
+      event_id: eventId,
+      player_name: name,
+      amount: getRawPt(name) / 2,
+      status: "未精算"
+    }));
+
     const { error } = await supabase.from('sessions').insert(insertData);
     if (!error) {
-      alert("保存成功"); fetchData(); setSelectedIds([]); setPoints({}); setLoans([]); setIsLoanApplied(false); setAllChipCounts({});
+      alert("未精算データとして保存しました");
+      fetchData(); setSelectedIds([]); setUnpaidSelected([]); setPoints({}); setLoans([]); setIsLoanApplied(false);
       localStorage.removeItem('poker_draft');
     }
   };
 
   const handleClear = () => {
     if(confirm("すべてリセットしますか？")) {
-      setSelectedIds([]); setPoints({}); setLoans([]); setIsLoanApplied(false); setAllChipCounts({});
+      setSelectedIds([]); setUnpaidSelected([]); setPoints({}); setLoans([]); setIsLoanApplied(false);
       localStorage.removeItem('poker_draft');
     }
   };
@@ -124,35 +126,12 @@ export default function PokerApp() {
     } else setIsEditMode(false);
   };
 
-  const toggleCheck = (id: string) => {
-    setCheckedEventIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-  };
-
-  const applyChipCalc = () => {
-    if (!calcTarget) return;
-    const current = allChipCounts[calcTarget] || { "50": 0, "100": 0, "500": 0, "1000": 0, "5000": 0 };
-    const total = Object.entries(current).reduce((sum, [v, c]) => sum + (Number(v) * c), 0);
-    setPoints({ ...points, [calcTarget]: total });
-    setInputModes({ ...inputModes, [calcTarget]: 'pt' });
-    setCalcTarget(null);
-  };
-
-  const updateChipCount = (val: string, count: number) => {
-    if (!calcTarget) return;
-    const current = allChipCounts[calcTarget] || { "50": 0, "100": 0, "500": 0, "1000": 0, "5000": 0 };
-    setAllChipCounts({ ...allChipCounts, [calcTarget]: { ...current, [val]: count } });
-  };
-
-  if (loading) return <div className="p-10 text-center font-bold text-slate-400">読み込み中...</div>;
-
   return (
     <div className="max-w-md mx-auto p-4 bg-slate-50 min-h-screen text-slate-900">
       <div className="flex justify-between items-center mb-4">
-        <div className="text-[10px] text-emerald-500 font-bold tracking-widest flex items-center gap-1">
-          ● ONLINE <span className="text-slate-300 text-[8px] font-normal ml-2">AUTO SAVE ON</span>
-        </div>
-        <button onClick={toggleEditMode} className={`text-[10px] px-3 py-1 rounded-full border transition-all ${isEditMode ? 'bg-orange-500 text-white border-orange-500 shadow-md' : 'bg-white text-slate-400 border-slate-200'}`}>
-          {isEditMode ? '🔓 EDIT ON' : '🔒 EDIT OFF'}
+        <div className="text-[10px] text-emerald-500 font-bold tracking-widest">● ONLINE</div>
+        <button onClick={toggleEditMode} className={`text-[10px] px-3 py-1 rounded-full border ${isEditMode ? 'bg-orange-500 text-white border-orange-500 shadow-md' : 'bg-white text-slate-400'}`}>
+          {isEditMode ? '🔓 EDIT ON (未精算選択可)' : '🔒 EDIT OFF'}
         </button>
       </div>
 
@@ -166,39 +145,10 @@ export default function PokerApp() {
 
       {activeTab === 'input' && (
         <>
-          {/* 貸借メモセクション */}
-          <div className={`p-4 rounded-2xl mb-6 border transition-all ${isLoanApplied && !isEditMode ? 'bg-slate-100' : 'bg-amber-50 border-amber-100 shadow-sm'}`}>
-            <h2 className={`text-[10px] font-black uppercase mb-3 ${isLoanApplied && !isEditMode ? 'text-slate-400' : 'text-amber-600'}`}>{isLoanApplied && !isEditMode ? '🔒 貸借反映済み' : '🤝 貸借メモ'}</h2>
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              <select disabled={isLoanApplied && !isEditMode} value={loanFrom} onChange={(e)=>setLoanFrom(e.target.value)} className="p-2 text-xs rounded-lg border-none bg-white outline-none">
-                <option value="">貸した人</option><option value="在庫">📦 在庫</option>
-                {members.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-              <select disabled={isLoanApplied && !isEditMode} value={loanTo} onChange={(e)=>setLoanTo(e.target.value)} className="p-2 text-xs rounded-lg border-none bg-white outline-none">
-                <option value="">借りた人</option><option value="在庫">📦 在庫</option>
-                {members.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </div>
-            <div className="flex gap-2 mb-3">
-              <input disabled={isLoanApplied && !isEditMode} type="number" placeholder="pt入力" value={loanAmount || ""} onChange={(e)=>setLoanAmount(parseInt(e.target.value)||0)} className="flex-1 p-2 text-xs rounded-lg border-none outline-none font-bold" />
-              <button disabled={isLoanApplied && !isEditMode} onClick={() => { if(loanFrom && loanTo && loanAmount > 0) { setLoans([...loans, {from: loanFrom, to: loanTo, amount: loanAmount}]); setLoanAmount(0); } }} className="bg-amber-500 text-white px-4 rounded-lg text-xs font-bold active:scale-95 shadow-sm">追加</button>
-            </div>
-            {loans.length > 0 && (
-              <div className="space-y-1">
-                {loans.map((l, i) => (
-                  <div key={i} className={`text-[10px] font-bold flex justify-between p-1.5 px-3 rounded ${isLoanApplied && !isEditMode ? 'text-slate-300' : 'text-amber-700 bg-white/60'}`}>
-                    <span>{l.from} → {l.to}</span><span>{l.amount.toLocaleString()} pt</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* チップ入力セクション */}
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-slate-900">
-            <h2 className="text-xs font-black text-slate-400 mb-4 uppercase tracking-widest flex justify-between items-center">
-              {isLoanApplied ? '収支確認' : 'チップ入力'}
-              <button onClick={handleClear} className="text-[10px] text-rose-400 font-bold border border-rose-100 px-3 py-1 rounded-lg bg-rose-50/30">すべてクリア</button>
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-slate-900 mb-6">
+            <h2 className="text-xs font-black text-slate-400 mb-4 uppercase flex justify-between items-center">
+              入力・精算管理
+              <button onClick={handleClear} className="text-[10px] text-rose-400 font-bold px-3 py-1 rounded-lg bg-rose-50/30 border border-rose-100">クリア</button>
             </h2>
             <div className="flex flex-wrap gap-2 mb-6">
               {members.map(m => (
@@ -209,16 +159,20 @@ export default function PokerApp() {
             {selectedIds.map(name => (
               <div key={name} className="flex flex-col mb-4 pb-4 border-b border-slate-50 last:border-0">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="font-bold text-slate-700">{name}</span>
+                  <div className="flex items-center gap-2">
+                    {/* ★編集モードのときだけ表示される未精算チェック */}
+                    {isEditMode && (
+                      <input type="checkbox" checked={unpaidSelected.includes(name)} onChange={() => setUnpaidSelected(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name])} className="w-4 h-4 accent-orange-500" />
+                    )}
+                    <span className="font-bold text-slate-700">{name}</span>
+                  </div>
                   <div className="flex bg-slate-100 p-1 rounded-lg">
                     <button onClick={() => setInputModes({...inputModes, [name]: 'pt'})} className={`px-3 py-1 text-[10px] font-black rounded-md transition-all ${(inputModes[name] || 'pt') === 'pt' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>PT</button>
                     <button onClick={() => setInputModes({...inputModes, [name]: 'yen'})} className={`px-3 py-1 text-[10px] font-black rounded-md transition-all ${inputModes[name] === 'yen' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>円</button>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {(inputModes[name] || 'pt') === 'pt' && <button onClick={() => setCalcTarget(name)} className="p-2 bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600">⌨</button>}
                   <input type="number" value={points[name] || ""} onChange={(e) => setPoints({ ...points, [name]: parseInt(e.target.value) || 0 })} className="flex-1 p-2 border-2 border-slate-100 rounded-lg text-right font-mono font-bold" />
-                  <span className="text-xs font-bold text-slate-400 w-8">{(inputModes[name] || 'pt') === 'pt' ? 'pt' : '円'}</span>
                 </div>
               </div>
             ))}
@@ -226,36 +180,35 @@ export default function PokerApp() {
             {selectedIds.length > 0 && (
               <div className="mt-6 space-y-3">
                 {!isLoanApplied ? (
-                  totalDiff === 0 ? (
-                    <button onClick={applyDeductAndLoans} className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black shadow-lg animate-pulse">収支に変換 (初期+在庫反映)</button>
-                  ) : (
-                    <div className="p-3 bg-rose-50 text-rose-500 rounded-xl text-center font-bold text-xs border border-rose-100">チップ総計不一致: あと {totalDiff > 0 ? '-' : '+'}{Math.abs(totalDiff).toLocaleString()} pt</div>
-                  )
+                  <button disabled={totalDiff !== 0} onClick={applyDeductAndLoans} className={`w-full py-4 rounded-xl font-black shadow-lg ${totalDiff === 0 ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
+                    {totalDiff === 0 ? '収支に変換' : `あと ${totalDiff > 0 ? '-' : '+'}${Math.abs(totalDiff).toLocaleString()} pt`}
+                  </button>
                 ) : (
                   <>
-                    <button onClick={saveEvent} className={`w-full py-4 rounded-xl font-black shadow-lg transition-all ${currentTotalInHand === 0 ? 'bg-slate-900 text-white' : 'bg-rose-500 text-white'}`}>
-                      {currentTotalInHand === 0 ? 'DBに保存（清算）' : `あと ${currentTotalInHand > 0 ? '-' : '+'}${Math.abs(currentTotalInHand).toLocaleString()} pt で整合`}
+                    <button onClick={saveEvent} className={`w-full py-4 rounded-xl font-black shadow-lg transition-all ${selectedUnpaidTotal === 0 && unpaidSelected.length > 0 ? 'bg-orange-500 text-white' : 'bg-rose-500 text-white'}`}>
+                      {unpaidSelected.length === 0 ? '保存する人をチェックしてください' : (selectedUnpaidTotal === 0 ? '未精算として保存' : `チェックした人の合計を0にして (${selectedUnpaidTotal > 0 ? '-' : '+'}${Math.abs(selectedUnpaidTotal).toLocaleString()}pt)`)}
                     </button>
-                    <button onClick={() => setIsLoanApplied(false)} className="w-full py-2 text-[10px] text-slate-400 font-black uppercase tracking-widest text-center border border-dashed border-slate-200 rounded-xl mt-2">修正する (チップ入力に戻る)</button>
+                    <button onClick={() => setIsLoanApplied(false)} className="w-full py-2 text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center border border-dashed border-slate-200 rounded-xl mt-2">修正する</button>
                   </>
                 )}
               </div>
             )}
           </div>
 
-          {/* ★履歴セクションの復活 */}
+          {/* 履歴セクション */}
           <div className="space-y-4 pb-24 mt-8">
-            <h2 className="text-xs font-black text-slate-400 uppercase px-1">履歴 (合算確認)</h2>
+            <h2 className="text-xs font-black text-slate-400 uppercase px-1">履歴</h2>
             {events.map(ev => (
-              <div key={ev.id} onClick={() => toggleCheck(ev.id)} className={`bg-white p-4 rounded-2xl shadow-sm border transition-all ${checkedEventIds.includes(ev.id) ? 'border-indigo-500 ring-4 ring-indigo-50' : 'border-slate-100'}`}>
-                <div className="flex items-center justify-between mb-3 text-[10px] font-bold text-slate-400">
-                   <div className="flex items-center gap-2">
-                    <div className={`w-4 h-4 rounded border ${checkedEventIds.includes(ev.id) ? 'bg-indigo-600 border-indigo-600' : 'bg-white'}`}></div>
-                    {ev.date}
-                  </div>
+              <div key={ev.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold text-slate-400">{ev.date}</span>
+                  {/* ★未精算ラベルの復活 */}
+                  {ev.data.some((d: any) => d.status === "未精算") && (
+                    <span className="bg-orange-100 text-orange-600 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter">UNPAID</span>
+                  )}
                 </div>
                 {ev.data.map((d: any) => (
-                  <div key={d.name} className="flex justify-between text-sm py-1 border-b border-slate-50 last:border-0 font-bold">
+                  <div key={d.name} className="flex justify-between text-sm py-1 font-bold">
                     <span className="text-slate-600">{d.name}</span>
                     <span className={d.amount >= 0 ? 'text-indigo-600' : 'text-rose-500'}>{d.amount.toLocaleString()}円</span>
                   </div>
@@ -263,100 +216,7 @@ export default function PokerApp() {
               </div>
             ))}
           </div>
-
-          {/* 合算ボタン */}
-          {checkedEventIds.length > 0 && (
-            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-full max-w-xs px-4">
-              <button onClick={() => {
-                const selected = events.filter(e => checkedEventIds.includes(e.id));
-                const combined: Record<string, number> = {};
-                selected.forEach(ev => ev.data.forEach((p: any) => combined[p.name] = (combined[p.name] || 0) + p.amount));
-                setSumPopup({ show: true, results: Object.entries(combined).map(([name, total]) => ({ name, total })).sort((a,b)=>b.total-a.total), details: `${checkedEventIds.length}件の合算` });
-              }} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-2xl border-4 border-white">合算を表示</button>
-            </div>
-          )}
         </>
-      )}
-
-      {/* ★ランキング・名簿タブの内容も確実に復活 */}
-      {activeTab === 'ranking' && (
-        <div className="space-y-4">
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-3 text-slate-900">
-            <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">期間指定フィルター</h2>
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
-              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="flex-1 p-2 bg-slate-50 border border-slate-100 rounded-lg outline-none" />
-              <span>〜</span>
-              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="flex-1 p-2 bg-slate-50 border border-slate-100 rounded-lg outline-none" />
-            </div>
-          </div>
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden text-slate-900">
-            {/* 以前のランキング集計ロジックを復元 */}
-            <table className="w-full text-left">
-              <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase"><th className="p-4">順位</th><th className="p-4">氏名</th><th className="p-4 text-right">収支</th></tr></thead>
-              <tbody>
-                {Object.entries(events.reduce((acc: any, ev: any) => {
-                  const evTime = new Date(ev.rawDate).getTime();
-                  if (startDate && evTime < new Date(startDate).getTime()) return acc;
-                  if (endDate && evTime > new Date(endDate).setHours(23, 59, 59, 999)) return acc;
-                  ev.data.forEach((d: any) => { acc[d.name] = (acc[d.name] || 0) + d.amount; });
-                  return acc;
-                }, {} as any)).sort((a: any, b: any) => b[1] - a[1]).map(([name, total]: any, index) => (
-                  <tr key={name} className="border-b border-slate-50 last:border-0">
-                    <td className="p-4 text-slate-300 font-black">#{index + 1}</td>
-                    <td className="p-4 font-bold">{name}</td>
-                    <td className={`p-4 text-right font-mono font-black ${total >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{total.toLocaleString()}円</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'master' && (
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-slate-900">
-          <h2 className="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">名簿管理</h2>
-          <div className="flex gap-2 mb-6">
-            <input type="text" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} placeholder="名前を入力" className="flex-1 p-2 border-2 border-slate-100 rounded-lg font-bold outline-none" />
-            <button onClick={async () => { if(!newMemberName) return; await supabase.from('players').insert([{ name: newMemberName }]); setNewMemberName(''); fetchData(); }} className="bg-indigo-600 text-white px-4 rounded-lg font-bold">追加</button>
-          </div>
-          <div className="space-y-2">
-            {members.map(m => (
-              <div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100"><span className="font-bold">{m}</span>{isEditMode && <button onClick={async () => { if(confirm("削除？")) { await supabase.from('players').delete().eq('name', m); fetchData(); } }} className="text-slate-300 hover:text-rose-500">×</button>}</div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* チップ計算モーダル */}
-      {calcTarget && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-end justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
-            <h3 className="font-black mb-6">{calcTarget} さんの持っているチップ</h3>
-            <div className="space-y-3 mb-6">
-              {['50', '100', '500', '1000', '5000'].map(val => (
-                <div key={val} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-100 shadow-sm text-slate-900">
-                  <div className="w-8 h-8 rounded-full border-2 border-dashed flex items-center justify-center text-[10px] font-black text-indigo-500">{val}</div>
-                  <input type="number" value={(allChipCounts[calcTarget!] || {})[val] || ""} placeholder="0" onChange={(e) => updateChipCount(val, parseInt(e.target.value) || 0)} className="w-20 p-2 bg-slate-50 border-transparent rounded-lg text-right font-mono font-bold outline-none" />
-                </div>
-              ))}
-            </div>
-            <button onClick={applyChipCalc} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black">確定</button>
-          </div>
-        </div>
-      )}
-
-      {/* 合算ポップアップ */}
-      {sumPopup?.show && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-6" onClick={() => setSumPopup(null)}>
-          <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl text-slate-900" onClick={(e) => e.stopPropagation()}>
-            <div className="text-center mb-6"><div className="text-[10px] font-black text-indigo-400 uppercase mb-1">合算収支</div></div>
-            <div className="space-y-3 max-h-[50vh] overflow-y-auto mb-8 pr-2">
-              {sumPopup.results.map(res => (<div key={res.name} className="flex justify-between items-center py-2 border-b border-slate-50 last:border-0"><span className="font-bold text-slate-700">{res.name}</span><span className={`font-mono font-black ${res.total >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{res.total.toLocaleString()}円</span></div>))}
-            </div>
-            <button onClick={() => { setSumPopup(null); setCheckedEventIds([]); }} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs shadow-lg">閉じて選択解除</button>
-          </div>
-        </div>
       )}
     </div>
   );
