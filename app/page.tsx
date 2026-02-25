@@ -16,7 +16,6 @@ export default function PokerApp() {
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 複数選択・合算ポップアップ用のステート
   const [checkedEventIds, setCheckedEventIds] = useState<string[]>([]);
   const [sumPopup, setSumPopup] = useState<{show: boolean, results: {name: string, total: number}[], details: string} | null>(null);
 
@@ -74,7 +73,6 @@ export default function PokerApp() {
     setLoading(false);
   };
 
-  // --- 選択されたセッションを合算するロジック ---
   const handleCombineEvents = () => {
     if (checkedEventIds.length === 0) return;
     const selectedEvents = events.filter(e => checkedEventIds.includes(e.id));
@@ -92,17 +90,11 @@ export default function PokerApp() {
       .map(([name, total]) => ({ name, total }))
       .sort((a, b) => b.total - a.total);
 
-    setSumPopup({
-      show: true,
-      results,
-      details: dates.join(', ')
-    });
+    setSumPopup({ show: true, results, details: dates.join(', ') });
   };
 
   const toggleCheck = (id: string) => {
-    setCheckedEventIds(prev => 
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
+    setCheckedEventIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
   const getFinalAmount = (name: string) => {
@@ -232,7 +224,7 @@ export default function PokerApp() {
     <div className="max-w-md mx-auto p-4 bg-slate-50 min-h-screen text-slate-900 relative">
       <div className="flex justify-between items-center mb-4">
         <div className="text-[10px] text-emerald-500 font-bold flex items-center gap-1">
-          ● ONLINE <span className="text-slate-300 text-[8px] font-normal ml-2">AUTO SAVE ON</span>
+          ● ONLINE <span className="text-slate-300 text-[8px] font-normal ml-2 tracking-widest">AUTO SAVE ON</span>
         </div>
         <button onClick={toggleEditMode} className={`text-[10px] px-3 py-1 rounded-full border transition-all ${isEditMode ? 'bg-orange-500 text-white border-orange-500 shadow-md' : 'bg-white text-slate-400 border-slate-200'}`}>
           {isEditMode ? '🔓 EDIT ON' : '🔒 EDIT OFF'}
@@ -278,7 +270,10 @@ export default function PokerApp() {
           </div>
 
           <div className="bg-white p-5 rounded-2xl shadow-sm mb-6 border border-slate-100 text-slate-900">
-            <h2 className="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest flex justify-between">新規セッション</h2>
+            <h2 className="text-xs font-black text-slate-400 uppercase mb-4 tracking-widest flex justify-between">
+              新規セッション
+              {selectedIds.length > 0 && <button onClick={() => { if(confirm("リセット？")) { setSelectedIds([]); setPoints({}); setLoans([]); setAllChipCounts({}); localStorage.removeItem('poker_draft'); }}} className="text-[8px] text-rose-400 border border-rose-100 px-2 rounded-md">クリア</button>}
+            </h2>
             <div className="flex flex-wrap gap-2 mb-6">
               {members.map(m => (
                 <button key={m} onClick={() => setSelectedIds(prev => prev.includes(m) ? prev.filter(n => n !== m) : [...prev, m])} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedIds.includes(m) ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-600'}`}>{m}</button>
@@ -300,20 +295,32 @@ export default function PokerApp() {
                 </div>
               </div>
             ))}
-            <button onClick={saveEvent} disabled={selectedIds.length === 0} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black mt-4 disabled:bg-slate-200 active:scale-95 shadow-lg">DBに保存</button>
+
+            {/* 合計0ptチェックと、保存ボタンの統合 */}
+            <button 
+              onClick={saveEvent} 
+              disabled={selectedIds.length === 0} 
+              className={`w-full py-4 rounded-xl font-black mt-4 active:scale-95 shadow-lg transition-all ${totalDifferencePt === 0 ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-500'}`}
+            >
+              {selectedIds.length === 0 
+                ? 'プレイヤーを選択してください' 
+                : totalDifferencePt === 0 
+                  ? 'DBに保存（清算）' 
+                  : `あと ${totalDifferencePt > 0 ? '-' : '+'}${Math.abs(totalDifferencePt).toLocaleString()} pt で保存可能`}
+            </button>
+            {selectedIds.length > 0 && totalDifferencePt !== 0 && (
+              <p className="text-[10px] text-center mt-2 text-rose-500 font-bold">※ 全員の合計が 0pt になるよう調整してください</p>
+            )}
           </div>
 
-          <div className="space-y-4 pb-20">
+          {/* 履歴セクション */}
+          <div className="space-y-4 pb-20 mt-8">
             <div className="flex justify-between items-center px-1">
-              <h2 className="text-xs font-black text-slate-400 uppercase">履歴</h2>
+              <h2 className="text-xs font-black text-slate-400 uppercase">履歴 (重ねて通算確認)</h2>
               <button onClick={() => setFilterUnpaid(!filterUnpaid)} className={`text-[10px] font-black px-3 py-1 rounded-full border transition-all ${filterUnpaid ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-400 border-slate-200'}`}>{filterUnpaid ? '未清算' : 'すべて'}</button>
             </div>
             {filteredEvents.map(ev => (
-              <div 
-                key={ev.id} 
-                onClick={() => toggleCheck(ev.id)}
-                className={`bg-white p-4 rounded-2xl shadow-sm border transition-all relative text-slate-900 ${checkedEventIds.includes(ev.id) ? 'border-indigo-500 ring-2 ring-indigo-50' : 'border-slate-100'}`}
-              >
+              <div key={ev.id} onClick={() => toggleCheck(ev.id)} className={`bg-white p-4 rounded-2xl shadow-sm border transition-all relative text-slate-900 ${checkedEventIds.includes(ev.id) ? 'border-indigo-500 ring-2 ring-indigo-50' : 'border-slate-100'}`}>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <div className={`w-4 h-4 rounded border flex items-center justify-center ${checkedEventIds.includes(ev.id) ? 'bg-indigo-600 border-indigo-600' : 'border-slate-200 bg-white'}`}>
@@ -327,7 +334,7 @@ export default function PokerApp() {
                   </div>
                 </div>
                 {ev.data.map((d: any) => (
-                  <div key={d.name} className="flex justify-between text-sm py-1 border-b border-slate-50 last:border-0 text-slate-900">
+                  <div key={d.name} className="flex justify-between text-sm py-1 border-b border-slate-50 last:border-0">
                     <span className="text-slate-600 font-bold">{d.name}</span>
                     <span className={`font-mono font-bold ${d.amount >= 0 ? 'text-indigo-600' : 'text-rose-500'}`}>{d.amount.toLocaleString()}円</span>
                   </div>
@@ -336,21 +343,18 @@ export default function PokerApp() {
             ))}
           </div>
 
-          {/* 固定表示の合算ボタン */}
+          {/* 合算ボタン */}
           {checkedEventIds.length > 0 && (
-            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-full max-w-xs px-4 animate-in slide-in-from-bottom duration-300">
-              <button 
-                onClick={handleCombineEvents}
-                className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-2xl flex items-center justify-center gap-3 border-4 border-white active:scale-95 transition-all"
-              >
-                <span>選択した {checkedEventIds.length}件 を合算確認</span>
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-full max-w-xs px-4">
+              <button onClick={handleCombineEvents} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-2xl border-4 border-white active:scale-95 transition-all">
+                選択した {checkedEventIds.length}件 を合算
               </button>
             </div>
           )}
         </>
       )}
 
-      {/* 合算結果ポップアップ */}
+      {/* ポップアップ・チップ計算モーダル等は維持 */}
       {sumPopup?.show && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-6" onClick={() => setSumPopup(null)}>
           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl text-slate-900" onClick={(e) => e.stopPropagation()}>
@@ -358,8 +362,7 @@ export default function PokerApp() {
               <div className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">通算収支レポート</div>
               <div className="text-[8px] font-bold text-slate-300 uppercase leading-relaxed break-all">{sumPopup.details}</div>
             </div>
-            
-            <div className="space-y-3 max-h-[50vh] overflow-y-auto mb-8 pr-2 custom-scrollbar">
+            <div className="space-y-3 max-h-[50vh] overflow-y-auto mb-8 pr-2">
               {sumPopup.results.map(res => (
                 <div key={res.name} className="flex justify-between items-center py-2.5 border-b border-slate-50 last:border-0">
                   <span className="font-bold text-slate-700">{res.name}</span>
@@ -369,19 +372,17 @@ export default function PokerApp() {
                 </div>
               ))}
             </div>
-
             <button onClick={() => { setSumPopup(null); setCheckedEventIds([]); }} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs shadow-lg active:scale-95 mb-3">閉じて選択解除</button>
-            <button onClick={() => setSumPopup(null)} className="w-full py-2 text-slate-400 font-bold text-[10px] uppercase">選択を残して閉じる</button>
+            <button onClick={() => setSumPopup(null)} className="w-full py-2 text-slate-400 font-bold text-[10px] uppercase">選択を残す</button>
           </div>
         </div>
       )}
 
-      {/* その他モーダル・タブ (維持) */}
       {calcTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-end justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="font-black text-slate-800">{calcTarget} さんのチップ</h3>
+              <h3 className="font-black text-slate-800">{calcTarget} さんの計算</h3>
               <button onClick={() => setCalcTarget(null)} className="text-slate-400 text-2xl">&times;</button>
             </div>
             <div className="space-y-3 mb-6">
@@ -390,16 +391,17 @@ export default function PokerApp() {
                 return (
                   <div key={val} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-100 shadow-sm text-slate-900">
                     <div className="w-8 h-8 rounded-full border-2 border-dashed flex items-center justify-center text-[10px] font-black text-indigo-500">{val}</div>
-                    <input type="number" value={currentCounts[val] || ""} placeholder="0" onChange={(e) => updateChipCount(val, parseInt(e.target.value) || 0)} className="w-20 p-2 bg-slate-50 border-transparent rounded-lg text-right font-mono font-bold outline-none" />
+                    <input type="number" value={currentCounts[val] || ""} placeholder="0" onChange={(e) => updateChipCount(val, parseInt(e.target.value) || 0)} className="w-20 p-2 bg-slate-50 border-transparent rounded-lg text-right font-mono font-bold" />
                   </div>
                 );
               })}
             </div>
-            <button onClick={applyChipCalc} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black">反映</button>
+            <button onClick={applyChipCalc} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-indigo-100">反映</button>
           </div>
         </div>
       )}
 
+      {/* 順位・名簿タブ（維持） */}
       {activeTab === 'ranking' && (
         <div className="space-y-4">
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-3 text-slate-900">
@@ -432,7 +434,7 @@ export default function PokerApp() {
           </div>
           <div className="space-y-2">
             {members.map(m => (
-              <div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100"><span className="font-bold">{m}</span>{isEditMode && <button onClick={() => deleteMember(m)} className="text-slate-300 hover:text-rose-500 transition-colors">×</button>}</div>
+              <div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100"><span className="font-bold">{m}</span>{isEditMode && <button onClick={() => deleteMember(m)} className="text-slate-300 hover:text-rose-500">×</button>}</div>
             ))}
           </div>
         </div>
