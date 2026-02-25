@@ -8,39 +8,50 @@ export default function PokerApp() {
   const [members, setMembers] = useState<string[]>([]);
   const [newMemberName, setNewMemberName] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [unpaidSelected, setUnpaidSelected] = useState<string[]>([]); // 未精算として保存する人のチェック用
   const [points, setPoints] = useState<Record<string, number>>({});
   const [inputModes, setInputModes] = useState<Record<string, 'pt' | 'yen'>>({});
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [checkedEventIds, setCheckedEventIds] = useState<string[]>([]);
-  const [sumPopup, setSumPopup] = useState<{show: boolean, results: {name: string, total: number}[], details: string} | null>(null);
+  // 期間フィルター
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
+  // 貸借メモ
   const [loans, setLoans] = useState<{from: string, to: string, amount: number}[]>([]);
   const [loanFrom, setLoanFrom] = useState('');
   const [loanTo, setLoanTo] = useState('');
   const [loanAmount, setLoanAmount] = useState<number>(0);
   const [isLoanApplied, setIsLoanApplied] = useState(false);
 
+  // チップ計算・分割ポップアップ
   const [calcTarget, setCalcTarget] = useState<string | null>(null);
   const [allChipCounts, setAllChipCounts] = useState<Record<string, Record<string, number>>>({});
   const [initialStack, setInitialStack] = useState(30000);
+  const [selectedLogItems, setSelectedLogItems] = useState<number[]>([]);
+  const [splitModal, setSplitModal] = useState<{ show: boolean, targetItems: any[] } | null>(null);
+  const [splitAmounts, setSplitAmounts] = useState<Record<number, number>>({});
 
   useEffect(() => {
-    const savedData = localStorage.getItem('poker_draft');
-    if (savedData) {
+    const saved = localStorage.getItem('poker_draft');
+    if (saved) {
       try {
-        const parsed = JSON.parse(savedData);
-        setSelectedIds(parsed.selectedIds || []);
-        setPoints(parsed.points || {});
-        setInputModes(parsed.inputModes || {});
-        setLoans(parsed.loans || []);
-        setIsLoanApplied(parsed.isLoanApplied || false);
+        const p = JSON.parse(saved);
+        setSelectedIds(p.selectedIds || []);
+        setPoints(p.points || {});
+        setLoans(p.loans || []);
+        setIsLoanApplied(p.isLoanApplied || false);
       } catch (e) { console.error(e); }
     }
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      const draft = { selectedIds, points, inputModes, loans, isLoanApplied, initialStack };
+      localStorage.setItem('poker_draft', JSON.stringify(draft));
+    }
+  }, [selectedIds, points, inputModes, loans, isLoanApplied, initialStack, loading]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -50,12 +61,12 @@ export default function PokerApp() {
     if (sData) {
       const grouped = sData.reduce((acc: any, curr: any) => {
         if (!acc[curr.event_id]) {
-          acc[curr.event_id] = { id: curr.event_id, rawDate: curr.created_at, date: new Date(curr.created_at).toLocaleString('ja-JP'), status: curr.status, data: [] };
+          acc[curr.event_id] = { id: curr.event_id, rawDate: curr.created_at, date: new Date(curr.created_at).toLocaleString('ja-JP'), data: [] };
         }
-        acc[curr.event_id].data.push({ name: curr.player_name, amount: curr.amount, status: curr.status });
+        acc[curr.event_id].data.push(curr);
         return acc;
       }, {});
-      setEvents(Object.values(grouped).map((ev: any) => ({ ...ev, data: ev.data.sort((a: any, b: any) => b.amount - a.amount) })));
+      setEvents(Object.values(grouped));
     }
     setLoading(false);
   };
@@ -66,20 +77,16 @@ export default function PokerApp() {
   };
 
   const currentTotalInHand = useMemo(() => selectedIds.reduce((sum, id) => sum + getRawPt(id), 0), [selectedIds, points, inputModes]);
-  const houseLoanSurplus = useMemo(() => loans.reduce((sum, loan) => {
-      if (loan.from === '在庫' && loan.to !== '在庫') return sum + loan.amount;
-      if (loan.to === '在庫' && loan.from !== '在庫') return sum - loan.amount;
-      return sum;
+  const houseLoanSurplus = useMemo(() => loans.reduce((sum, l) => {
+    if (l.from === '在庫' && l.to !== '在庫') return sum + l.amount;
+    if (l.to === '在庫' && l.from !== '在庫') return sum - l.amount;
+    return sum;
   }, 0), [loans]);
-
-  const targetTotalWithHouse = useMemo(() => (selectedIds.length * initialStack) + houseLoanSurplus, [selectedIds.length, initialStack, houseLoanSurplus]);
+  const targetTotalWithHouse = (selectedIds.length * initialStack) + houseLoanSurplus;
   const totalDiff = currentTotalInHand - targetTotalWithHouse;
 
-  // ★「保存対象（未精算チェックを入れた人）」の収支合計を計算
-  const selectedUnpaidTotal = useMemo(() => unpaidSelected.reduce((sum, id) => sum + getRawPt(id), 0), [unpaidSelected, points, inputModes]);
-
   const applyDeductAndLoans = () => {
-    if (totalDiff !== 0) return alert("チップの合計が一致していません。");
+    if (totalDiff !== 0) return alert("不整合です");
     const newPoints = { ...points };
     selectedIds.forEach(id => { newPoints[id] = getRawPt(id) - initialStack; });
     loans.forEach(loan => {
@@ -91,53 +98,46 @@ export default function PokerApp() {
     setIsLoanApplied(true);
   };
 
-  const saveEvent = async () => {
-    if (unpaidSelected.length === 0) return alert("保存する人をチェックしてください（未精算者選択）");
-    if (selectedUnpaidTotal !== 0) return alert(`チェックした人の合計が ${selectedUnpaidTotal}pt です。0ptにする必要があります。`);
-    
-    const eventId = crypto.randomUUID();
-    // チェックされた人だけを「未精算」として保存、それ以外（もし選んでいれば）は「清算済み」
-    const insertData = unpaidSelected.map(name => ({
-      event_id: eventId,
-      player_name: name,
-      amount: getRawPt(name) / 2,
-      status: "未精算"
-    }));
+  const openSplitModal = () => {
+    const all = events.flatMap(ev => ev.data);
+    const targets = all.filter(d => selectedLogItems.includes(d.id));
+    setSplitModal({ show: true, targetItems: targets });
+    const initials: Record<number, number> = {};
+    targets.forEach(t => initials[t.id] = 0);
+    setSplitAmounts(initials);
+  };
 
-    const { error } = await supabase.from('sessions').insert(insertData);
-    if (!error) {
-      alert("未精算データとして保存しました");
-      fetchData(); setSelectedIds([]); setUnpaidSelected([]); setPoints({}); setLoans([]); setIsLoanApplied(false);
-      localStorage.removeItem('poker_draft');
+  const confirmSplit = async () => {
+    const sum = Object.values(splitAmounts).reduce((a, b) => a + b, 0);
+    if (sum !== 0) return alert("合計を0にしてください");
+    const newEventId = crypto.randomUUID();
+    const splitRecords = splitModal!.targetItems.map(t => ({
+      player_name: t.player_name, amount: splitAmounts[t.id], event_id: newEventId, status: "未精算"
+    })).filter(r => r.amount !== 0);
+
+    for (const item of splitModal!.targetItems) {
+      const remaining = item.amount - splitAmounts[item.id];
+      if (remaining === 0) await supabase.from('sessions').delete().eq('id', item.id);
+      else await supabase.from('sessions').update({ amount: remaining }).eq('id', item.id);
     }
+    if (splitRecords.length > 0) await supabase.from('sessions').insert(splitRecords);
+    setSplitModal(null); setSelectedLogItems([]); fetchData();
   };
 
-  const handleClear = () => {
-    if(confirm("すべてリセットしますか？")) {
-      setSelectedIds([]); setUnpaidSelected([]); setPoints({}); setLoans([]); setIsLoanApplied(false);
-      localStorage.removeItem('poker_draft');
-    }
-  };
-
-  const toggleEditMode = () => {
-    if (!isEditMode) {
-      const pw = prompt("パスワード");
-      if (pw === "poker999") setIsEditMode(true);
-    } else setIsEditMode(false);
-  };
+  if (loading) return <div className="p-10 text-center font-bold text-slate-400 tracking-tighter uppercase animate-pulse">Loading Database...</div>;
 
   return (
-    <div className="max-w-md mx-auto p-4 bg-slate-50 min-h-screen text-slate-900">
+    <div className="max-w-md mx-auto p-4 bg-slate-50 min-h-screen text-slate-900 font-sans">
       <div className="flex justify-between items-center mb-4">
-        <div className="text-[10px] text-emerald-500 font-bold tracking-widest">● ONLINE</div>
-        <button onClick={toggleEditMode} className={`text-[10px] px-3 py-1 rounded-full border ${isEditMode ? 'bg-orange-500 text-white border-orange-500 shadow-md' : 'bg-white text-slate-400'}`}>
-          {isEditMode ? '🔓 EDIT ON (未精算選択可)' : '🔒 EDIT OFF'}
+        <div className="text-[10px] text-emerald-500 font-black tracking-widest flex items-center gap-1">● ONLINE</div>
+        <button onClick={() => { if(!isEditMode){const pw=prompt("Pass"); if(pw==="poker999")setIsEditMode(true);}else setIsEditMode(false);}} className={`text-[10px] px-3 py-1 rounded-full border transition-all font-bold ${isEditMode ? 'bg-orange-500 text-white border-orange-500 shadow-md' : 'bg-white text-slate-400'}`}>
+          {isEditMode ? '🔓 EDIT ON' : '🔒 EDIT OFF'}
         </button>
       </div>
 
-      <div className="flex bg-white p-1 rounded-xl shadow-sm mb-6 border border-slate-100">
+      <div className="flex bg-white p-1 rounded-xl shadow-sm mb-6 border border-slate-100 font-bold">
         {['input', 'ranking', 'master'].map((t) => (
-          <button key={t} onClick={() => setActiveTab(t as any)} className={`flex-1 py-2 rounded-lg text-xs font-black transition-all ${activeTab === t ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>
+          <button key={t} onClick={() => setActiveTab(t as any)} className={`flex-1 py-2 rounded-lg text-xs transition-all ${activeTab === t ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400'}`}>
             {t === 'input' ? '記録' : t === 'ranking' ? '順位' : '名簿'}
           </button>
         ))}
@@ -145,71 +145,68 @@ export default function PokerApp() {
 
       {activeTab === 'input' && (
         <>
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-slate-900 mb-6">
-            <h2 className="text-xs font-black text-slate-400 mb-4 uppercase flex justify-between items-center">
-              入力・精算管理
-              <button onClick={handleClear} className="text-[10px] text-rose-400 font-bold px-3 py-1 rounded-lg bg-rose-50/30 border border-rose-100">クリア</button>
-            </h2>
-            <div className="flex flex-wrap gap-2 mb-6">
-              {members.map(m => (
-                <button key={m} onClick={() => setSelectedIds(prev => prev.includes(m) ? prev.filter(n => n !== m) : [...prev, m])} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedIds.includes(m) ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-600'}`}>{m}</button>
-              ))}
+          <div className={`p-4 rounded-2xl mb-6 border transition-all ${isLoanApplied && !isEditMode ? 'bg-slate-100' : 'bg-amber-50 border-amber-100 shadow-sm'}`}>
+            <h2 className="text-[10px] font-black uppercase mb-3 text-amber-600">🤝 貸借メモ</h2>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <select value={loanFrom} onChange={(e)=>setLoanFrom(e.target.value)} className="p-2 text-xs rounded-lg bg-white border-none outline-none"><option value="">貸した人</option><option value="在庫">📦 在庫</option>{members.map(m=><option key={m} value={m}>{m}</option>)}</select>
+              <select value={loanTo} onChange={(e)=>setLoanTo(e.target.value)} className="p-2 text-xs rounded-lg bg-white border-none outline-none"><option value="">借りた人</option><option value="在庫">📦 在庫</option>{members.map(m=><option key={m} value={m}>{m}</option>)}</select>
             </div>
+            <div className="flex gap-2">
+              <input type="number" placeholder="pt" value={loanAmount || ""} onChange={(e)=>setLoanAmount(parseInt(e.target.value)||0)} className="flex-1 p-2 text-xs rounded-lg border-none outline-none font-bold" />
+              <button onClick={()=>{if(loanFrom&&loanTo&&loanAmount>0){setLoans([...loans,{from:loanFrom,to:loanTo,amount:loanAmount}]);setLoanAmount(0);}}} className="bg-amber-500 text-white px-4 rounded-lg text-xs font-bold">追加</button>
+            </div>
+            {loans.map((l, i) => (<div key={i} className="text-[10px] font-bold text-amber-700 flex justify-between mt-1 px-2">{l.from} → {l.to} : {l.amount}pt</div>))}
+          </div>
 
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 mb-6">
+            <h2 className="text-xs font-black text-slate-400 mb-4 uppercase flex justify-between items-center">チップ入力 <button onClick={()=>{if(confirm("リセット？")){setSelectedIds([]);setPoints({});setLoans([]);setIsLoanApplied(false);}}} className="text-rose-400 text-[9px] font-bold">クリア</button></h2>
+            <div className="flex flex-wrap gap-2 mb-6">
+              {members.map(m => (<button key={m} onClick={() => setSelectedIds(prev => prev.includes(m) ? prev.filter(n => n !== m) : [...prev, m])} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedIds.includes(m) ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-600'}`}>{m}</button>))}
+            </div>
             {selectedIds.map(name => (
-              <div key={name} className="flex flex-col mb-4 pb-4 border-b border-slate-50 last:border-0">
+              <div key={name} className="flex flex-col mb-4 pb-4 border-b border-slate-50 last:border-0 text-slate-900">
                 <div className="flex justify-between items-center mb-2">
-                  <div className="flex items-center gap-2">
-                    {/* ★編集モードのときだけ表示される未精算チェック */}
-                    {isEditMode && (
-                      <input type="checkbox" checked={unpaidSelected.includes(name)} onChange={() => setUnpaidSelected(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name])} className="w-4 h-4 accent-orange-500" />
-                    )}
-                    <span className="font-bold text-slate-700">{name}</span>
-                  </div>
+                  <span className="font-bold text-sm">{name}</span>
                   <div className="flex bg-slate-100 p-1 rounded-lg">
-                    <button onClick={() => setInputModes({...inputModes, [name]: 'pt'})} className={`px-3 py-1 text-[10px] font-black rounded-md transition-all ${(inputModes[name] || 'pt') === 'pt' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>PT</button>
-                    <button onClick={() => setInputModes({...inputModes, [name]: 'yen'})} className={`px-3 py-1 text-[10px] font-black rounded-md transition-all ${inputModes[name] === 'yen' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>円</button>
+                    <button onClick={() => setInputModes({...inputModes, [name]: 'pt'})} className={`px-3 py-1 text-[10px] font-black rounded-md ${(inputModes[name] || 'pt') === 'pt' ? 'bg-white text-indigo-600' : 'text-slate-400'}`}>PT</button>
+                    <button onClick={() => setInputModes({...inputModes, [name]: 'yen'})} className={`px-3 py-1 text-[10px] font-black rounded-md ${inputModes[name] === 'yen' ? 'bg-white text-emerald-600' : 'text-slate-400'}`}>円</button>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <input type="number" value={points[name] || ""} onChange={(e) => setPoints({ ...points, [name]: parseInt(e.target.value) || 0 })} className="flex-1 p-2 border-2 border-slate-100 rounded-lg text-right font-mono font-bold" />
+                  <button onClick={()=>setCalcTarget(name)} className="p-2 bg-slate-100 rounded-lg text-slate-400">⌨</button>
+                  <input type="number" value={points[name] || ""} onChange={(e)=>setPoints({...points,[name]:parseInt(e.target.value)||0})} className="flex-1 p-2 border border-slate-100 rounded-lg text-right font-mono font-bold" />
                 </div>
               </div>
             ))}
-            
             {selectedIds.length > 0 && (
-              <div className="mt-6 space-y-3">
-                {!isLoanApplied ? (
-                  <button disabled={totalDiff !== 0} onClick={applyDeductAndLoans} className={`w-full py-4 rounded-xl font-black shadow-lg ${totalDiff === 0 ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
-                    {totalDiff === 0 ? '収支に変換' : `あと ${totalDiff > 0 ? '-' : '+'}${Math.abs(totalDiff).toLocaleString()} pt`}
-                  </button>
-                ) : (
-                  <>
-                    <button onClick={saveEvent} className={`w-full py-4 rounded-xl font-black shadow-lg transition-all ${selectedUnpaidTotal === 0 && unpaidSelected.length > 0 ? 'bg-orange-500 text-white' : 'bg-rose-500 text-white'}`}>
-                      {unpaidSelected.length === 0 ? '保存する人をチェックしてください' : (selectedUnpaidTotal === 0 ? '未精算として保存' : `チェックした人の合計を0にして (${selectedUnpaidTotal > 0 ? '-' : '+'}${Math.abs(selectedUnpaidTotal).toLocaleString()}pt)`)}
-                    </button>
-                    <button onClick={() => setIsLoanApplied(false)} className="w-full py-2 text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center border border-dashed border-slate-200 rounded-xl mt-2">修正する</button>
-                  </>
-                )}
-              </div>
+              <button onClick={isLoanApplied ? async () => {
+                const eventId = crypto.randomUUID();
+                const insertData = selectedIds.map(name => ({ event_id: eventId, player_name: name, amount: getRawPt(name)/2, status: "清算済み" }));
+                await supabase.from('sessions').insert(insertData);
+                fetchData(); setSelectedIds([]); setPoints({}); setIsLoanApplied(false);
+              } : applyDeductAndLoans} className="w-full py-4 bg-slate-900 text-white rounded-xl font-black mt-2 shadow-lg active:scale-95 transition-all">
+                {isLoanApplied ? (currentTotalInHand === 0 ? 'DBに保存' : `誤差 ${currentTotalInHand}pt`) : (totalDiff === 0 ? '収支に変換' : `あと ${totalDiff}pt`)}
+              </button>
             )}
           </div>
 
-          {/* 履歴セクション */}
-          <div className="space-y-4 pb-24 mt-8">
-            <h2 className="text-xs font-black text-slate-400 uppercase px-1">履歴</h2>
+          <div className="space-y-4 pb-32">
+            <div className="flex justify-between items-center px-1">
+              <h2 className="text-xs font-black text-slate-400 uppercase">履歴</h2>
+              {isEditMode && selectedLogItems.length > 0 && <button onClick={openSplitModal} className="bg-orange-500 text-white text-[10px] font-black px-4 py-2 rounded-lg shadow-lg animate-pulse">未精算切り出し</button>}
+            </div>
             {events.map(ev => (
-              <div key={ev.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative">
-                <div className="flex items-center justify-between mb-2">
+              <div key={ev.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                <div className="flex justify-between items-center mb-2">
                   <span className="text-[10px] font-bold text-slate-400">{ev.date}</span>
-                  {/* ★未精算ラベルの復活 */}
-                  {ev.data.some((d: any) => d.status === "未精算") && (
-                    <span className="bg-orange-100 text-orange-600 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-tighter">UNPAID</span>
-                  )}
+                  {ev.data.some((d: any) => d.status === "未精算") && <span className="bg-orange-100 text-orange-600 text-[8px] font-black px-2 py-0.5 rounded-full uppercase">UNPAID</span>}
                 </div>
                 {ev.data.map((d: any) => (
-                  <div key={d.name} className="flex justify-between text-sm py-1 font-bold">
-                    <span className="text-slate-600">{d.name}</span>
+                  <div key={d.id} className="flex items-center justify-between text-sm py-1 border-b border-slate-50 last:border-0 font-bold">
+                    <div className="flex items-center gap-2">
+                      {isEditMode && <input type="checkbox" checked={selectedLogItems.includes(d.id)} onChange={()=>setSelectedLogItems(prev => prev.includes(d.id)?prev.filter(i=>i!==d.id):[...prev, d.id])} className="w-4 h-4 accent-orange-500" />}
+                      <span className="text-slate-600">{d.player_name}</span>
+                    </div>
                     <span className={d.amount >= 0 ? 'text-indigo-600' : 'text-rose-500'}>{d.amount.toLocaleString()}円</span>
                   </div>
                 ))}
@@ -217,6 +214,81 @@ export default function PokerApp() {
             ))}
           </div>
         </>
+      )}
+
+      {activeTab === 'ranking' && (
+        <div className="space-y-4 text-slate-900">
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-2">
+             <input type="date" value={startDate} onChange={(e)=>setStartDate(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-100 rounded-lg text-xs font-bold" />
+             <input type="date" value={endDate} onChange={(e)=>setEndDate(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-100 rounded-lg text-xs font-bold" />
+          </div>
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <table className="w-full text-left text-xs">
+              <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase"><th className="p-4">順位</th><th className="p-4">名前</th><th className="p-4 text-right">収支</th></tr></thead>
+              <tbody>
+                {Object.entries(events.reduce((acc: any, ev: any) => {
+                  const evTime = new Date(ev.rawDate).getTime();
+                  if (startDate && evTime < new Date(startDate).getTime()) return acc;
+                  if (endDate && evTime > new Date(endDate).getTime()) return acc;
+                  ev.data.forEach((d: any) => { acc[d.player_name] = (acc[d.player_name] || 0) + d.amount; });
+                  return acc;
+                }, {} as any)).sort((a: any, b: any) => b[1] - a[1]).map(([name, total]: any, index) => (
+                  <tr key={name} className="border-b border-slate-50 last:border-0"><td className="p-4 font-black text-slate-300">#{index+1}</td><td className="p-4 font-bold">{name}</td><td className={`p-4 text-right font-mono font-black ${total>=0?'text-indigo-600':'text-rose-500'}`}>{total.toLocaleString()}円</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'master' && (
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-slate-900">
+          <div className="flex gap-2 mb-6">
+            <input type="text" value={newMemberName} onChange={(e)=>setNewMemberName(e.target.value)} className="flex-1 p-2 border-2 border-slate-100 rounded-lg font-bold outline-none" placeholder="新しい名前" />
+            <button onClick={async ()=>{if(!newMemberName)return; await supabase.from('players').insert([{name:newMemberName}]); setNewMemberName(''); fetchData();}} className="bg-indigo-600 text-white px-4 rounded-lg font-bold">追加</button>
+          </div>
+          <div className="space-y-2">
+            {members.map(m=>(<div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100 font-bold"><span>{m}</span>{isEditMode && <button onClick={async ()=>{if(confirm("削除？")){await supabase.from('players').delete().eq('name',m);fetchData();}}} className="text-slate-300 hover:text-rose-500">×</button>}</div>))}
+          </div>
+        </div>
+      )}
+
+      {/* モーダル群 */}
+      {calcTarget && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-end justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
+            <h3 className="font-black mb-6 text-slate-800">{calcTarget} さんの持ちチップ</h3>
+            {['50','100','500','1000','5000'].map(val => (
+              <div key={val} className="flex items-center justify-between mb-3 bg-slate-50 p-2 rounded-xl border border-slate-100 text-slate-900">
+                <div className="w-8 h-8 rounded-full border-2 border-dashed flex items-center justify-center text-[10px] font-black text-indigo-500">{val}</div>
+                <input type="number" value={(allChipCounts[calcTarget!]||{})[val]||""} placeholder="0" onChange={(e)=>{const current=allChipCounts[calcTarget!]||{}; setAllChipCounts({...allChipCounts,[calcTarget!]:{...current,[val]:parseInt(e.target.value)||0}})}} className="w-20 p-2 bg-white border-none rounded-lg text-right font-mono font-bold" />
+              </div>
+            ))}
+            <button onClick={()=>{
+              const current=allChipCounts[calcTarget!]||{}; const total=Object.entries(current).reduce((s,[v,c])=>s+(Number(v)*c),0);
+              setPoints({...points,[calcTarget!]:total}); setCalcTarget(null);
+            }} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg">チップ量を確定</button>
+          </div>
+        </div>
+      )}
+
+      {splitModal?.show && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[120] flex items-center justify-center p-6 text-slate-900">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl">
+            <h3 className="text-center font-black mb-6 uppercase tracking-widest text-sm">未精算分の金額を入力</h3>
+            <div className="space-y-4 mb-8">
+              {splitModal.targetItems.map(item => (
+                <div key={item.id} className="flex flex-col gap-1">
+                  <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase"><span>{item.player_name} (今: {item.amount}円)</span></div>
+                  <input type="number" value={splitAmounts[item.id]||""} onChange={(e)=>setSplitAmounts({...splitAmounts,[item.id]:parseInt(e.target.value)||0})} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-mono font-bold text-right outline-none" />
+                </div>
+              ))}
+              <div className={`text-center py-2 rounded-lg text-[10px] font-black ${Object.values(splitAmounts).reduce((a,b)=>a+b,0)===0?'bg-emerald-50 text-emerald-600':'bg-rose-50 text-rose-500'}`}>合計誤差: {Object.values(splitAmounts).reduce((a,b)=>a+b,0)}円</div>
+            </div>
+            <button onClick={confirmSplit} className="w-full py-4 bg-orange-500 text-white rounded-2xl font-black shadow-lg mb-3">未精算データを作成</button>
+            <button onClick={()=>setSplitModal(null)} className="w-full text-slate-400 font-bold text-xs uppercase">キャンセル</button>
+          </div>
+        </div>
       )}
     </div>
   );
