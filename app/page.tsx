@@ -66,6 +66,13 @@ export default function PokerApp() {
     setLoading(false);
   };
 
+  // ★ ステータスを一括で更新する関数
+  const updateEventStatus = async (eventId: string, newStatus: string) => {
+    const { error } = await supabase.from('sessions').update({ status: newStatus }).eq('event_id', eventId);
+    if (!error) fetchData();
+    else alert("更新失敗");
+  };
+
   const getRawPt = (name: string) => {
     const val = points[name] || 0;
     return (inputModes[name] || 'pt') === 'pt' ? val : val * 2;
@@ -110,14 +117,14 @@ export default function PokerApp() {
     setSplitModal(null); setSelectedLogItems([]); fetchData();
   };
 
-  if (loading) return <div className="p-10 text-center font-bold text-slate-400">Loading...</div>;
+  if (loading) return <div className="p-10 text-center font-bold text-slate-400 tracking-widest uppercase animate-pulse">Loading...</div>;
 
   return (
     <div className="max-w-md mx-auto p-4 bg-slate-50 min-h-screen text-slate-900 font-sans">
       {/* ヘッダー */}
       <div className="flex justify-between items-center mb-4">
         <div className="text-[10px] text-emerald-500 font-black tracking-widest">● ONLINE</div>
-        <button onClick={() => { if(!isEditMode){const pw=prompt("Pass"); if(pw==="poker999")setIsEditMode(true);}else setIsEditMode(false);}} className={`text-[10px] px-3 py-1 rounded-full border font-bold ${isEditMode ? 'bg-orange-500 text-white' : 'bg-white text-slate-400'}`}>
+        <button onClick={() => { if(!isEditMode){const pw=prompt("Pass"); if(pw==="poker999")setIsEditMode(true);}else setIsEditMode(false);}} className={`text-[10px] px-3 py-1 rounded-full border font-bold transition-all ${isEditMode ? 'bg-orange-500 text-white border-orange-500 shadow-md' : 'bg-white text-slate-400'}`}>
           {isEditMode ? '🔓 EDIT ON' : '🔒 EDIT OFF'}
         </button>
       </div>
@@ -134,11 +141,11 @@ export default function PokerApp() {
       {activeTab === 'input' && (
         <>
           {/* 🤝 貸借メモ */}
-          <div className={`p-4 rounded-2xl mb-6 border transition-all ${isLoanApplied && !isEditMode ? 'bg-slate-100' : 'bg-amber-50 border-amber-100'}`}>
+          <div className={`p-4 rounded-2xl mb-6 border transition-all ${isLoanApplied && !isEditMode ? 'bg-slate-100' : 'bg-amber-50 border-amber-100 shadow-sm'}`}>
             <h2 className="text-[10px] font-black uppercase mb-3 text-amber-600">🤝 貸借メモ</h2>
             <div className="grid grid-cols-2 gap-2 mb-2">
-              <select value={loanFrom} onChange={(e)=>setLoanFrom(e.target.value)} className="p-2 text-xs rounded-lg bg-white outline-none"><option value="">貸した人</option><option value="在庫">📦 在庫</option>{members.map(m=><option key={m} value={m}>{m}</option>)}</select>
-              <select value={loanTo} onChange={(e)=>setLoanTo(e.target.value)} className="p-2 text-xs rounded-lg bg-white outline-none"><option value="">借りた人</option><option value="在庫">📦 在庫</option>{members.map(m=><option key={m} value={m}>{m}</option>)}</select>
+              <select value={loanFrom} onChange={(e)=>setLoanFrom(e.target.value)} className="p-2 text-xs rounded-lg bg-white border-none outline-none"><option value="">貸した人</option><option value="在庫">📦 在庫</option>{members.map(m=><option key={m} value={m}>{m}</option>)}</select>
+              <select value={loanTo} onChange={(e)=>setLoanTo(e.target.value)} className="p-2 text-xs rounded-lg bg-white border-none outline-none"><option value="">借りた人</option><option value="在庫">📦 在庫</option>{members.map(m=><option key={m} value={m}>{m}</option>)}</select>
             </div>
             <div className="flex gap-2">
               <input type="number" placeholder="pt" value={loanAmount || ""} onChange={(e)=>setLoanAmount(parseInt(e.target.value)||0)} className="flex-1 p-2 text-xs rounded-lg font-bold outline-none" />
@@ -150,7 +157,7 @@ export default function PokerApp() {
           {/* ⌨ チップ入力 */}
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 mb-6">
             <h2 className="text-xs font-black text-slate-400 mb-4 uppercase flex justify-between items-center">チップ入力 <button onClick={()=>{if(confirm("リセット？")){setSelectedIds([]);setPoints({});setLoans([]);setIsLoanApplied(false);}}} className="text-rose-400 text-[9px] font-bold">すべてクリア</button></h2>
-            <div className="flex flex-wrap gap-2 mb-6">
+            <div className="flex flex-wrap gap-2 mb-6 text-slate-900">
               {members.map(m => (<button key={m} onClick={() => setSelectedIds(prev => prev.includes(m) ? prev.filter(n => n !== m) : [...prev, m])} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${selectedIds.includes(m) ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-600'}`}>{m}</button>))}
             </div>
             {selectedIds.map(name => (
@@ -181,32 +188,46 @@ export default function PokerApp() {
             )}
           </div>
 
-          {/* 📜 履歴セクション（合算と切り出し） */}
+          {/* 📜 履歴セクション */}
           <div className="space-y-4 pb-32">
             <div className="flex justify-between items-center px-1">
-              <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">履歴 (合算は左のチェック)</h2>
-              {isEditMode && selectedLogItems.length > 0 && <button onClick={()=>{const all=events.flatMap(ev=>ev.data); const targets=all.filter(d=>selectedLogItems.includes(d.id)); setSplitModal({show:true, targetItems:targets}); setSplitAmounts(Object.fromEntries(targets.map(t=>[t.id, 0])));}} className="bg-orange-500 text-white text-[10px] font-black px-4 py-2 rounded-lg animate-pulse">未精算切り出し</button>}
+              <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">履歴</h2>
+              {isEditMode && selectedLogItems.length > 0 && <button onClick={()=>{const all=events.flatMap(ev=>ev.data); const targets=all.filter(d=>selectedLogItems.includes(d.id)); setSplitModal({show:true, targetItems:targets}); setSplitAmounts(Object.fromEntries(targets.map(t=>[t.id, 0])));}} className="bg-orange-500 text-white text-[10px] font-black px-4 py-2 rounded-lg animate-pulse shadow-lg">未精算切り出し</button>}
             </div>
-            {events.map(ev => (
-              <div key={ev.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden">
-                <div className="flex justify-between items-center mb-2">
-                  <div className="flex items-center gap-2" onClick={() => { setCheckedEventIds(prev => prev.includes(ev.id) ? prev.filter(i => i !== ev.id) : [...prev, ev.id]); }}>
-                    <div className={`w-4 h-4 rounded border transition-colors ${checkedEventIds.includes(ev.id) ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-200'}`}></div>
-                    <span className="text-[10px] font-bold text-slate-400">{ev.date}</span>
-                  </div>
-                  {ev.data.some((d: any) => d.status === "未精算") && <span className="bg-orange-100 text-orange-600 text-[8px] font-black px-2 py-0.5 rounded-full">UNPAID</span>}
-                </div>
-                {ev.data.map((d: any) => (
-                  <div key={d.id} className="flex items-center justify-between py-1 border-b border-slate-50 last:border-0 font-bold text-sm">
-                    <div className="flex items-center gap-2">
-                      {isEditMode && <input type="checkbox" checked={selectedLogItems.includes(d.id)} onChange={()=>setSelectedLogItems(prev => prev.includes(d.id)?prev.filter(i=>i!==d.id):[...prev, d.id])} className="w-4 h-4 accent-orange-500" />}
-                      <span className="text-slate-600">{d.player_name}</span>
+            {events.map(ev => {
+              const isEventUnpaid = ev.data.some((d: any) => d.status === "未精算");
+              return (
+                <div key={ev.id} className={`bg-white p-4 rounded-2xl shadow-sm border transition-all ${isEventUnpaid ? 'border-orange-200' : 'border-slate-100'}`}>
+                  <div className="flex justify-between items-center mb-2">
+                    <div className="flex items-center gap-2" onClick={() => { setCheckedEventIds(prev => prev.includes(ev.id) ? prev.filter(i => i !== ev.id) : [...prev, ev.id]); }}>
+                      <div className={`w-4 h-4 rounded border transition-colors ${checkedEventIds.includes(ev.id) ? 'bg-indigo-600 border-indigo-600' : 'bg-white border-slate-200'}`}></div>
+                      <span className="text-[10px] font-bold text-slate-400">{ev.date}</span>
                     </div>
-                    <span className={d.amount >= 0 ? 'text-indigo-600' : 'text-rose-500'}>{d.amount.toLocaleString()}円</span>
+                    <div className="flex items-center gap-2">
+                      {isEventUnpaid && <span className="bg-orange-100 text-orange-600 text-[8px] font-black px-2 py-0.5 rounded-full">未精算</span>}
+                      {/* ★ステータス切替ボタンの追加 */}
+                      {isEditMode && (
+                        <button 
+                          onClick={() => updateEventStatus(ev.id, isEventUnpaid ? "清算済み" : "未精算")}
+                          className="text-[8px] font-black px-2 py-0.5 rounded-full border border-slate-200 text-slate-400 hover:bg-slate-50 transition-colors"
+                        >
+                          {isEventUnpaid ? "精算済みにする" : "未精算に戻す"}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                ))}
-              </div>
-            ))}
+                  {ev.data.map((d: any) => (
+                    <div key={d.id} className="flex items-center justify-between py-1 border-b border-slate-50 last:border-0 font-bold text-sm">
+                      <div className="flex items-center gap-2">
+                        {isEditMode && <input type="checkbox" checked={selectedLogItems.includes(d.id)} onChange={()=>setSelectedLogItems(prev => prev.includes(d.id)?prev.filter(i=>i!==d.id):[...prev, d.id])} className="w-4 h-4 accent-orange-500" />}
+                        <span className="text-slate-600">{d.player_name}</span>
+                      </div>
+                      <span className={d.amount >= 0 ? 'text-indigo-600' : 'text-rose-500'}>{d.amount.toLocaleString()}円</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
 
           {/* ✨ 合算フローティングボタン */}
@@ -225,7 +246,7 @@ export default function PokerApp() {
         </>
       )}
 
-      {/* 📊 ランキング・名簿（以前と同様の完全版） */}
+      {/* 📊 ランキング */}
       {activeTab === 'ranking' && (
         <div className="space-y-4 text-slate-900">
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-2">
@@ -243,7 +264,7 @@ export default function PokerApp() {
                   ev.data.forEach((d: any) => { acc[d.player_name] = (acc[d.player_name] || 0) + d.amount; });
                   return acc;
                 }, {} as any)).sort((a: any, b: any) => b[1] - a[1]).map(([name, total]: any, index) => (
-                  <tr key={name} className="border-b border-slate-50 last:border-0"><td className="p-4 font-black text-slate-300">#{index+1}</td><td className="p-4 font-bold">{name}</td><td className={`p-4 text-right font-mono font-black ${total>=0?'text-indigo-600':'text-rose-500'}`}>{total.toLocaleString()}円</td></tr>
+                  <tr key={name} className="border-b border-slate-50 last:border-0 font-bold"><td className="p-4 text-slate-300">#{index+1}</td><td className="p-4">{name}</td><td className={`p-4 text-right font-mono ${total>=0?'text-indigo-600':'text-rose-500'}`}>{total.toLocaleString()}円</td></tr>
                 ))}
               </tbody>
             </table>
@@ -251,6 +272,7 @@ export default function PokerApp() {
         </div>
       )}
 
+      {/* 👥 名簿 */}
       {activeTab === 'master' && (
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-slate-900">
           <div className="flex gap-2 mb-6">
@@ -263,7 +285,7 @@ export default function PokerApp() {
         </div>
       )}
 
-      {/* 📱 各種ポップアップ（チップ計算、合算表示、切り出し） */}
+      {/* 📱 各種モーダル */}
       {calcTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-end justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
@@ -298,17 +320,17 @@ export default function PokerApp() {
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[120] flex items-center justify-center p-6 text-slate-900">
           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl">
             <h3 className="text-center font-black mb-6 uppercase tracking-widest text-xs">未精算分の金額を入力</h3>
-            <div className="space-y-4 mb-8 text-slate-900">
+            <div className="space-y-4 mb-8 text-slate-900 font-bold">
               {splitModal.targetItems.map(item => (
                 <div key={item.id} className="flex flex-col gap-1">
                   <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase"><span>{item.player_name} (現在: {item.amount}円)</span></div>
-                  <input type="number" value={splitAmounts[item.id]||""} onChange={(e)=>setSplitAmounts({...splitAmounts,[item.id]:parseInt(e.target.value)||0})} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-mono font-bold text-right outline-none" />
+                  <input type="number" value={splitAmounts[item.id]||""} onChange={(e)=>setSplitAmounts({...splitAmounts,[item.id]:parseInt(e.target.value)||0})} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-mono text-right outline-none" />
                 </div>
               ))}
               <div className={`text-center py-2 rounded-lg text-[10px] font-black ${Object.values(splitAmounts).reduce((a,b)=>a+b,0)===0?'bg-emerald-50 text-emerald-600':'bg-rose-50 text-rose-500'}`}>合計誤差: {Object.values(splitAmounts).reduce((a,b)=>a+b,0)}円</div>
             </div>
             <button onClick={confirmSplit} className="w-full py-4 bg-orange-500 text-white rounded-2xl font-black shadow-lg mb-3">未精算データとして分離</button>
-            <button onClick={()=>setSplitModal(null)} className="w-full text-slate-400 font-bold text-xs uppercase">キャンセル</button>
+            <button onClick={()=>setSplitModal(null)} className="w-full text-slate-400 font-bold text-xs uppercase text-center">キャンセル</button>
           </div>
         </div>
       )}
