@@ -8,7 +8,7 @@ export default function PokerApp() {
   const [members, setMembers] = useState<string[]>([]);
   const [newMemberName, setNewMemberName] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [points, setPoints] = useState<Record<string, number>>({});
+  const [points, setPoints] = useState<Record<string, any>>({}); // stringも許容してマイナス入力を補助
   const [inputModes, setInputModes] = useState<Record<string, 'pt' | 'yen'>>({});
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,11 +75,10 @@ export default function PokerApp() {
   };
 
   const getRawPt = (name: string) => {
-    const val = points[name] ?? 0;
+    const val = parseFloat(points[name]) || 0;
     return (inputModes[name] || 'pt') === 'pt' ? val : val * 2;
   };
 
-  // --- 計算ロジック ---
   const currentTotalInHand = useMemo(() => selectedIds.reduce((sum, id) => sum + getRawPt(id), 0), [selectedIds, points, inputModes]);
   const houseLoanSurplus = useMemo(() => loans.reduce((sum, l) => {
     if (l.from === '在庫' && l.to !== '在庫') return sum + l.amount;
@@ -98,8 +97,8 @@ export default function PokerApp() {
     });
     loans.forEach(loan => {
       if (!loan.applied) {
-        if (loan.from !== '在庫') newPoints[loan.from] = (newPoints[loan.from] || 0) + loan.amount;
-        if (loan.to !== '在庫') newPoints[loan.to] = (newPoints[loan.to] || 0) - loan.amount;
+        if (loan.from !== '在庫') newPoints[loan.from] = (parseFloat(newPoints[loan.from]) || 0) + loan.amount;
+        if (loan.to !== '在庫') newPoints[loan.to] = (parseFloat(newPoints[loan.to]) || 0) - loan.amount;
       }
     });
     setPoints(newPoints);
@@ -148,11 +147,8 @@ export default function PokerApp() {
     setSplitModal(null); setSelectedLogItems([]); fetchData();
   };
 
-  if (loading) return <div className="p-10 text-center font-black text-slate-300 tracking-widest animate-pulse">LOADING...</div>;
-
   return (
     <div className="max-w-md mx-auto p-4 bg-slate-50 min-h-screen text-slate-900 font-sans">
-      {/* ヘッダー */}
       <div className="flex justify-between items-center mb-4">
         <div className="text-[10px] text-emerald-500 font-black tracking-widest uppercase">● Online</div>
         <button onClick={() => { if (!isEditMode) { const pw = prompt("Pass"); if (pw === "poker999") setIsEditMode(true); } else setIsEditMode(false); }} className={`text-[10px] px-3 py-1 rounded-full border font-bold transition-all ${isEditMode ? 'bg-orange-500 text-white border-orange-500 shadow-md' : 'bg-white text-slate-400'}`}>
@@ -160,7 +156,6 @@ export default function PokerApp() {
         </button>
       </div>
 
-      {/* 設定・タブ */}
       <div className="bg-white p-4 rounded-2xl mb-4 border border-slate-100 shadow-sm flex items-center justify-between">
         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">初期スタック設定</span>
         <div className="flex items-center gap-2">
@@ -179,7 +174,6 @@ export default function PokerApp() {
 
       {activeTab === 'input' && (
         <>
-          {/* 🤝 貸借メモ */}
           <div className={`p-4 rounded-2xl mb-6 border transition-all ${isLoanApplied ? 'bg-slate-100' : 'bg-amber-50 border-amber-100 shadow-sm'}`}>
             <h2 className="text-[10px] font-black uppercase mb-3 text-amber-600">🤝 貸借メモ</h2>
             <div className="grid grid-cols-2 gap-2 mb-2">
@@ -202,7 +196,6 @@ export default function PokerApp() {
             </div>
           </div>
 
-          {/* ⌨ チップ入力 */}
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 mb-6 text-slate-900">
             <h2 className="text-xs font-black text-slate-400 mb-4 uppercase flex justify-between items-center">チップ入力 <button onClick={() => handleClear()} className="text-rose-400 text-[9px] font-bold">すべてクリア</button></h2>
             <div className="flex flex-wrap gap-2 mb-6">
@@ -217,9 +210,22 @@ export default function PokerApp() {
                     <button onClick={() => setInputModes({ ...inputModes, [name]: 'yen' })} className={`px-3 py-1 text-[10px] font-black rounded-md transition-all ${inputModes[name] === 'yen' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>円</button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 text-slate-900">
                   <button onClick={() => setCalcTarget(name)} className="p-2 bg-slate-100 rounded-lg text-slate-400">⌨</button>
-                  <input type="number" value={points[name] === undefined ? "" : points[name]} onChange={(e) => setPoints({ ...points, [name]: e.target.value === "" ? 0 : parseInt(e.target.value) })} className="flex-1 p-2 border border-slate-100 rounded-lg text-right font-mono font-bold text-slate-900 outline-none" />
+                  {/* type="text" に変更して、マイナス記号 "-" の直接入力を許可 */}
+                  <input 
+                    type="text" 
+                    inputMode="numeric"
+                    value={points[name] === undefined ? "" : points[name]} 
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      // 数字、マイナス記号、空文字以外は無視
+                      if (val === "" || val === "-" || !isNaN(Number(val))) {
+                        setPoints({ ...points, [name]: val });
+                      }
+                    }} 
+                    className="flex-1 p-2 border border-slate-100 rounded-lg text-right font-mono font-bold outline-none" 
+                  />
                 </div>
               </div>
             ))}
@@ -237,7 +243,6 @@ export default function PokerApp() {
             )}
           </div>
 
-          {/* 📜 履歴 */}
           <div className="space-y-4 pb-32">
             <div className="flex justify-between items-center px-1">
               <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">履歴</h2>
@@ -258,7 +263,7 @@ export default function PokerApp() {
                     </div>
                   </div>
                   {ev.data.map((d: any) => (
-                    <div key={d.id} className="flex items-center justify-between py-1 border-b border-slate-50 last:border-0 font-bold text-sm">
+                    <div key={d.id} className="flex items-center justify-between py-1 border-b border-slate-50 last:border-0 font-bold text-sm text-slate-900">
                       <div className="flex items-center gap-2">
                         {isEditMode && <input type="checkbox" checked={selectedLogItems.includes(d.id)} onChange={() => setSelectedLogItems(prev => prev.includes(d.id) ? prev.filter(i => i !== d.id) : [...prev, d.id])} className="w-4 h-4 accent-orange-500" />}
                         <span className="text-slate-600">{d.player_name}</span>
@@ -271,7 +276,6 @@ export default function PokerApp() {
             })}
           </div>
 
-          {/* 合算ボタン */}
           {checkedEventIds.length > 0 && (
             <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-full max-w-xs px-4">
               <button onClick={() => {
@@ -287,14 +291,14 @@ export default function PokerApp() {
         </>
       )}
 
-      {/* 📊 ランキング */}
+      {/* ランキング・名簿・ポップアップ等の共通部分は前回と同様 */}
       {activeTab === 'ranking' && (
-        <div className="space-y-4 text-slate-900">
+        <div className="space-y-4 text-slate-900 font-bold">
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-2">
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full p-2 bg-slate-50 border-none rounded-lg text-xs font-bold outline-none" />
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full p-2 bg-slate-50 border-none rounded-lg text-xs font-bold outline-none" />
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full p-2 bg-slate-50 border-none rounded-lg text-xs outline-none font-bold" />
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full p-2 bg-slate-50 border-none rounded-lg text-xs outline-none font-bold" />
           </div>
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden font-bold">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             <table className="w-full text-left text-xs">
               <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase"><th className="p-4">順位</th><th className="p-4">名前</th><th className="p-4 text-right">収支</th></tr></thead>
               <tbody>
@@ -313,26 +317,25 @@ export default function PokerApp() {
         </div>
       )}
 
-      {/* 👥 名簿 */}
       {activeTab === 'master' && (
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-slate-900 font-bold">
-          <div className="flex gap-2 mb-6 text-slate-900">
+          <div className="flex gap-2 mb-6">
             <input type="text" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="flex-1 p-2 border-2 border-slate-100 rounded-lg font-bold outline-none" placeholder="新しい名前" />
             <button onClick={async () => { if (!newMemberName) return; await supabase.from('players').insert([{ name: newMemberName }]); setNewMemberName(''); fetchData(); }} className="bg-indigo-600 text-white px-4 rounded-lg font-bold">追加</button>
           </div>
           <div className="space-y-2">
-            {members.map(m => (<div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100"><span>{m}</span>{isEditMode && <button onClick={async () => { if (confirm("削除？")) { await supabase.from('players').delete().eq('name', m); fetchData(); } }} className="text-slate-300 hover:text-rose-500">×</button>}</div>))}
+            {members.map(m => (<div key={m} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100 font-bold"><span>{m}</span>{isEditMode && <button onClick={async () => { if (confirm("削除？")) { await supabase.from('players').delete().eq('name', m); fetchData(); } }} className="text-slate-300 hover:text-rose-500">×</button>}</div>))}
           </div>
         </div>
       )}
 
-      {/* 📱 ポップアップ */}
+      {/* 各種ポップアップモーダル */}
       {calcTarget && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-end justify-center p-4">
           <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl text-slate-900">
             <h3 className="font-black mb-6 text-slate-800 text-center uppercase tracking-widest text-xs">{calcTarget} さんの持ちチップ</h3>
             {['50', '100', '500', '1000', '5000'].map(val => (
-              <div key={val} className="flex items-center justify-between mb-3 bg-slate-50 p-2 rounded-xl border border-slate-100 text-slate-900">
+              <div key={val} className="flex items-center justify-between mb-3 bg-slate-50 p-2 rounded-xl border border-slate-100">
                 <div className="w-8 h-8 rounded-full border-2 border-dashed flex items-center justify-center text-[10px] font-black text-indigo-500">{val}</div>
                 <input type="number" value={(allChipCounts[calcTarget!] || {})[val] || ""} placeholder="0" onChange={(e) => { const current = allChipCounts[calcTarget!] || {}; setAllChipCounts({ ...allChipCounts, [calcTarget!]: { ...current, [val]: parseInt(e.target.value) || 0 } }) }} className="w-20 p-2 bg-white border-none rounded-lg text-right font-mono font-bold outline-none" />
               </div>
@@ -350,7 +353,7 @@ export default function PokerApp() {
           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="text-center mb-6 font-black text-indigo-600 uppercase tracking-widest text-[10px]">合算収支</div>
             <div className="space-y-3 max-h-[50vh] overflow-y-auto mb-8 pr-2 font-bold">
-              {sumPopup.results.map(res => (<div key={res.name} className="flex justify-between items-center py-2 border-b border-slate-50 last:border-0"><span className="text-slate-700">{res.name}</span><span className={res.total >= 0 ? 'text-indigo-600' : 'text-rose-500'}>{res.total.toLocaleString()}円</span></div>))}
+              {sumPopup.results.map(res => (<div key={res.name} className="flex justify-between items-center py-2 border-b border-slate-50 last:border-0 font-bold"><span className="text-slate-700">{res.name}</span><span className={res.total >= 0 ? 'text-indigo-600' : 'text-rose-500'}>{res.total.toLocaleString()}円</span></div>))}
             </div>
             <button onClick={() => { setSumPopup(null); setCheckedEventIds([]); }} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs shadow-lg uppercase tracking-widest">CLOSE</button>
           </div>
